@@ -1,0 +1,140 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --refresh-bg: #edf3fb;
+  --refresh-surface: #ffffff;
+  --refresh-surface-soft: #f6faff;
+  --refresh-stroke: #d7e3f1;
+  --refresh-stroke-strong: #b9cde2;
+  --refresh-text: #16324f;
+  --refresh-text-soft: #58708a;
+  --refresh-heading: #0f2139;
+  --refresh-primary: #1f6feb;
+  --refresh-primary-strong: #0f58d8;
+  --refresh-cyan: #21c7d9;
+  --refresh-navy: #0d1b2f;
+  --refresh-navy-soft: #132742;
+  --refresh-success: #2fa36b;
+  --refresh-danger: #d14f57;
+  --refresh-shadow: 0 20px 45px rgba(15, 33, 57, 0.08);
+}
+
+body {
+  @apply antialiased;
+  background:
+    radial-gradient(circle at top left, rgba(33, 199, 217, 0.14), transparent 20%),
+    linear-gradient(180deg, #f7fbff 0%, var(--refresh-bg) 100%);
+  color: var(--refresh-text);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+}
+
+.legacy-table th {
+  background: linear-gradient(135deg, var(--refresh-navy) 0%, var(--refresh-navy-soft) 100%);
+  color: #f8fbff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 12px 10px;
+  text-align: left;
+}
+
+.legacy-table td {
+  border-top: 1px solid var(--refresh-stroke);
+  color: var(--refresh-text);
+  font-size: 14px;
+  padding: 12px 10px;
+  vertical-align: top;
+}
+
+.legacy-table tbody tr:nth-child(odd) td {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.legacy-table tbody tr:nth-child(even) td {
+  background: rgba(246, 250, 255, 0.92);
+}
+
+.legacy-table tbody tr:hover td {
+  background: #eef6ff;
+}
+
+.legacy-form-row {
+  border: 1px solid var(--refresh-stroke);
+  border-top: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%);
+  padding: 18px 14px;
+}
+
+.legacy-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--refresh-heading);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.legacy-input {
+  height: 42px;
+  width: 100%;
+  border: 1px solid var(--refresh-stroke);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+  padding: 0 12px;
+  font-size: 15px;
+  color: var(--refresh-text);
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.legacy-input:focus {
+  border-color: rgba(31, 111, 235, 0.55);
+  box-shadow: 0 0 0 4px rgba(31, 111, 235, 0.12);
+  background: #fff;
+}
+
+.legacy-textarea {
+  width: 100%;
+  border: 1px solid var(--refresh-stroke);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  padding: 12px;
+  font-size: 15px;
+  color: var(--refresh-text);
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.legacy-textarea:focus {
+  border-color: rgba(31, 111, 235, 0.55);
+  box-shadow: 0 0 0 4px rgba(31, 111, 235, 0.12);
+  background: #fff;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--refresh-primary);
+}
+
+select.legacy-input {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #5a7592 50%),
+    linear-gradient(135deg, #5a7592 50%, transparent 50%),
+    linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px),
+    0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+}

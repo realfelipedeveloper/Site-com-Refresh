@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+
+# Build / framework
+.next/
+out/
+dist/
+build/
+coverage/
+.turbo/
+
+# Temporary / cache
+tmp/
+temp/
+.cache/
+.eslintcache
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# Local databases / SQLite / Prisma local artifacts
+apps/api/prisma/dev.db
+apps/api/prisma/dev.db-journal
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads / generated media locais
+uploads/
+storage/
+public/uploads/
+public/storage/
+
+# Docker
+.docker/
+docker-data/
+docker/mysql/data/
+docker/postgres/data/
+**/data/
+docker-compose.override.yml
+
+# Dokploy / deploy local artifacts
+.dokploy/
+.dokploy-cache/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+.playwright/
+test-results/
+
+# Misc project files
+Manager/
+handoff-status.md
+docs/

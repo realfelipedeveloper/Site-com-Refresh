@@ -1,0 +1,15 @@
+name: abbatech
+type: compose
+compose_file: docker-compose.prod.yml
+env_file: .env
+domains:
+  - host: portal.example.com
+    service: portal
+    port: 3000
+  - host: refresh.example.com
+    service: refresh
+    port: 3000
+  - host: api.example.com
+    service: api
+    port: 3333
+

@@ -1,0 +1,27 @@
+{
+  "name": "abbatech",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:portal dev:refresh",
+    "dev:api": "npm run dev -w @abbatech/api",
+    "dev:portal": "npm run dev -w @abbatech/portal",
+    "dev:refresh": "npm run dev -w @abbatech/refresh",
+    "build": "npm run build -w @abbatech/api && npm run build -w @abbatech/portal && npm run build -w @abbatech/refresh",
+    "lint": "npm run lint -w @abbatech/api && npm run lint -w @abbatech/portal && npm run lint -w @abbatech/refresh",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  }
+}
+

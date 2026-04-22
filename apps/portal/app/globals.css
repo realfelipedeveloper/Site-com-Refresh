@@ -1,0 +1,21 @@
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Space+Grotesk:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-mist text-ink antialiased;
+  background-image:
+    radial-gradient(circle at top left, rgba(212, 162, 76, 0.18), transparent 35%),
+    radial-gradient(circle at bottom right, rgba(31, 77, 69, 0.12), transparent 30%);
+}
+
+a {
+  @apply transition-colors;
+}
+
