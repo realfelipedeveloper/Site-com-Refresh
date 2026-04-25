@@ -60,6 +60,9 @@ services:
     depends_on:
       - mysql
       - minio
+    networks:
+      - default
+      - dokploy-network
 
   portal:
     build:
@@ -71,6 +74,9 @@ services:
       INTERNAL_API_URL: http://api:3333/api/v1
     depends_on:
       - api
+    networks:
+      - default
+      - dokploy-network
 
   refresh:
     build:
@@ -82,7 +88,14 @@ services:
       INTERNAL_API_URL: http://api:3333/api/v1
     depends_on:
       - api
+    networks:
+      - default
+      - dokploy-network
 
 volumes:
   mysql_prod_data:
   minio_prod_data:
+
+networks:
+  dokploy-network:
+    external: true
