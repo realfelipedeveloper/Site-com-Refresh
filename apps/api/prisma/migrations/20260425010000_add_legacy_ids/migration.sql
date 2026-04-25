@@ -36,6 +36,55 @@ ALTER TABLE `RoleApplicationAccess`
   FOREIGN KEY (`appId`) REFERENCES `LegacyApplication`(`id`)
   ON DELETE CASCADE ON UPDATE CASCADE;
 
+CREATE TABLE `RoleSectionAccess` (
+  `roleId` VARCHAR(191) NOT NULL,
+  `sectionId` VARCHAR(191) NOT NULL,
+
+  PRIMARY KEY (`roleId`, `sectionId`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `RoleContentTypeAccess` (
+  `roleId` VARCHAR(191) NOT NULL,
+  `contentTypeId` VARCHAR(191) NOT NULL,
+
+  PRIMARY KEY (`roleId`, `contentTypeId`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `SystemEmail` (
+  `id` VARCHAR(191) NOT NULL,
+  `legacyId` INTEGER NULL,
+  `name` VARCHAR(191) NOT NULL,
+  `email` VARCHAR(191) NOT NULL,
+  `area` VARCHAR(191) NOT NULL,
+  `description` TEXT NULL,
+  `value` VARCHAR(191) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+
+  UNIQUE INDEX `SystemEmail_legacyId_key`(`legacyId`),
+  PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+ALTER TABLE `RoleSectionAccess`
+  ADD CONSTRAINT `RoleSectionAccess_roleId_fkey`
+  FOREIGN KEY (`roleId`) REFERENCES `Role`(`id`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE `RoleSectionAccess`
+  ADD CONSTRAINT `RoleSectionAccess_sectionId_fkey`
+  FOREIGN KEY (`sectionId`) REFERENCES `Section`(`id`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE `RoleContentTypeAccess`
+  ADD CONSTRAINT `RoleContentTypeAccess_roleId_fkey`
+  FOREIGN KEY (`roleId`) REFERENCES `Role`(`id`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE `RoleContentTypeAccess`
+  ADD CONSTRAINT `RoleContentTypeAccess_contentTypeId_fkey`
+  FOREIGN KEY (`contentTypeId`) REFERENCES `ContentType`(`id`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
 ALTER TABLE `User` ADD COLUMN `legacyId` INTEGER NULL;
 CREATE UNIQUE INDEX `User_legacyId_key` ON `User`(`legacyId`);
 
@@ -51,8 +100,6 @@ CREATE UNIQUE INDEX `Section_legacyId_key` ON `Section`(`legacyId`);
 ALTER TABLE `ContentType` ADD COLUMN `legacyId` INTEGER NULL;
 CREATE UNIQUE INDEX `ContentType_legacyId_key` ON `ContentType`(`legacyId`);
 
-ALTER TABLE `SystemEmail` ADD COLUMN `legacyId` INTEGER NULL;
-CREATE UNIQUE INDEX `SystemEmail_legacyId_key` ON `SystemEmail`(`legacyId`);
 
 ALTER TABLE `Template` ADD COLUMN `legacyId` INTEGER NULL;
 CREATE UNIQUE INDEX `Template_legacyId_key` ON `Template`(`legacyId`);
