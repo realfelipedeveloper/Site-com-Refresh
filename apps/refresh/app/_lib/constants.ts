@@ -19,6 +19,9 @@ import type {
   UserFormState
 } from "./types";
 
+export const portalRootLabel =
+  process.env.NEXT_PUBLIC_PORTAL_NAME ?? process.env.NEXT_PUBLIC_SITE_NAME ?? "Abbatech";
+
 export const emptySectionForm: SectionFormState = {
   name: "",
   slug: "",

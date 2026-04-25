@@ -124,6 +124,9 @@ export type Content = {
   section: {
     id: string;
     name: string;
+    slug?: string;
+    path?: string;
+    parentId?: string | null;
   };
   contentType: {
     id: string;
