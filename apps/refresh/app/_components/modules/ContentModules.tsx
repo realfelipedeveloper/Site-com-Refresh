@@ -2,10 +2,48 @@
 
 import { ActionButton } from "../ActionButton";
 import { SectionTree } from "../SectionTree";
-import { templateLibrary } from "../../_lib/constants";
+import { portalRootLabel, templateLibrary } from "../../_lib/constants";
 import { displayRecordCode, formatContentStatus, formatDate, formatTime } from "../../_lib/utils";
-import type { ContentFormState } from "../../_lib/types";
+import type { Content, ContentFormState, Section } from "../../_lib/types";
 import type { RefreshManager } from "./moduleTypes";
+
+function formatPathSegment(segment: string) {
+  return segment
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getSectionLabelChain(section: Content["section"], sections: Section[]) {
+  const sectionMap = new Map(sections.map((entry) => [entry.id, entry]));
+  const labels: string[] = [];
+  const visited = new Set<string>();
+  let current: Section | Content["section"] | undefined = sectionMap.get(section.id) ?? section;
+
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    labels.unshift(current.name);
+    current = current.parentId ? sectionMap.get(current.parentId) : undefined;
+  }
+
+  if (labels.length > 0) {
+    return labels;
+  }
+
+  const pathLabels = section.path?.split("/").filter(Boolean).map(formatPathSegment) ?? [];
+  if (pathLabels.length > 0) {
+    pathLabels[pathLabels.length - 1] = section.name;
+    return pathLabels;
+  }
+
+  return [section.name];
+}
+
+function formatSectionBreadcrumb(section: Content["section"], sections: Section[]) {
+  const sectionLabels = getSectionLabelChain(section, sections);
+  const labels = sectionLabels[0]?.toLowerCase() === "home" ? sectionLabels : ["Home", ...sectionLabels];
+
+  return `>${[portalRootLabel, ...labels].join(">")}`;
+}
 
 export function ContentModules({ manager }: { manager: RefreshManager }) {
   const {
@@ -86,7 +124,7 @@ export function ContentModules({ manager }: { manager: RefreshManager }) {
                       </button>
                     </td>
                     <td className="text-[#0c67ad]">
-                      &gt;conectahc&gt;Home&gt;{content.section.name}
+                      {formatSectionBreadcrumb(content.section, sections)}
                     </td>
                     <td>{content.contentType.name}</td>
                     <td>--</td>
@@ -365,7 +403,7 @@ export function ContentModules({ manager }: { manager: RefreshManager }) {
           </div>
 
           <div className="min-h-[380px]">
-            <div className="mb-2 text-[17px] font-semibold text-[#333]">≣ conectahc ()</div>
+            <div className="mb-2 text-[17px] font-semibold text-[#333]">≣ {portalRootLabel} ()</div>
             <div className="ml-6">
               <SectionTree
                 nodes={sectionTree}
