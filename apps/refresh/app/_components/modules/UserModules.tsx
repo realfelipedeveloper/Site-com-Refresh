@@ -478,7 +478,7 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
                     />
                   </th>
                   <th className="w-[70px]">Id</th>
-                  <th>Nome/Município</th>
+                  <th>Nome</th>
                   <th>Username</th>
                   <th className="w-[90px]">CPF</th>
                   <th>E-mail</th>
@@ -504,7 +504,6 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
                     <td>
                       <button className="text-[#0c67ad] hover:underline" onClick={() => editUser(managedUser)} type="button">
                         {managedUser.name}
-                        {managedUser.city ? `-${managedUser.city}` : ""}
                       </button>
                     </td>
                     <td className="text-[#0c67ad]">{managedUser.username ?? "-"}</td>
