@@ -1,3 +1,41 @@
+CREATE TABLE `LegacyApplication` (
+  `id` VARCHAR(191) NOT NULL,
+  `legacyId` INTEGER NULL,
+  `name` VARCHAR(191) NOT NULL,
+  `description` TEXT NULL,
+  `area` VARCHAR(191) NOT NULL,
+  `link` VARCHAR(191) NOT NULL,
+
+  UNIQUE INDEX `LegacyApplication_legacyId_key`(`legacyId`),
+  UNIQUE INDEX `LegacyApplication_name_key`(`name`),
+  PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `RoleApplicationAccess` (
+  `id` VARCHAR(191) NOT NULL,
+  `legacyId` INTEGER NULL,
+  `roleId` VARCHAR(191) NOT NULL,
+  `appId` VARCHAR(191) NOT NULL,
+  `canCreate` BOOLEAN NOT NULL DEFAULT false,
+  `canUpdate` BOOLEAN NOT NULL DEFAULT false,
+  `canDelete` BOOLEAN NOT NULL DEFAULT false,
+  `canAccess` BOOLEAN NOT NULL DEFAULT true,
+
+  UNIQUE INDEX `RoleApplicationAccess_legacyId_key`(`legacyId`),
+  UNIQUE INDEX `RoleApplicationAccess_roleId_appId_key`(`roleId`, `appId`),
+  PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+ALTER TABLE `RoleApplicationAccess`
+  ADD CONSTRAINT `RoleApplicationAccess_roleId_fkey`
+  FOREIGN KEY (`roleId`) REFERENCES `Role`(`id`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE `RoleApplicationAccess`
+  ADD CONSTRAINT `RoleApplicationAccess_appId_fkey`
+  FOREIGN KEY (`appId`) REFERENCES `LegacyApplication`(`id`)
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
 ALTER TABLE `User` ADD COLUMN `legacyId` INTEGER NULL;
 CREATE UNIQUE INDEX `User_legacyId_key` ON `User`(`legacyId`);
 
@@ -12,12 +50,6 @@ CREATE UNIQUE INDEX `Section_legacyId_key` ON `Section`(`legacyId`);
 
 ALTER TABLE `ContentType` ADD COLUMN `legacyId` INTEGER NULL;
 CREATE UNIQUE INDEX `ContentType_legacyId_key` ON `ContentType`(`legacyId`);
-
-ALTER TABLE `LegacyApplication` ADD COLUMN `legacyId` INTEGER NULL;
-CREATE UNIQUE INDEX `LegacyApplication_legacyId_key` ON `LegacyApplication`(`legacyId`);
-
-ALTER TABLE `RoleApplicationAccess` ADD COLUMN `legacyId` INTEGER NULL;
-CREATE UNIQUE INDEX `RoleApplicationAccess_legacyId_key` ON `RoleApplicationAccess`(`legacyId`);
 
 ALTER TABLE `SystemEmail` ADD COLUMN `legacyId` INTEGER NULL;
 CREATE UNIQUE INDEX `SystemEmail_legacyId_key` ON `SystemEmail`(`legacyId`);
