@@ -56,6 +56,10 @@ services:
     build:
       context: .
       dockerfile: apps/portal/Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_REFRESH_URL: ${NEXT_PUBLIC_REFRESH_URL}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     container_name: abbatech-portal-localprod
     restart: unless-stopped
     env_file:
@@ -71,6 +75,10 @@ services:
     build:
       context: .
       dockerfile: apps/refresh/Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_REFRESH_URL: ${NEXT_PUBLIC_REFRESH_URL}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     container_name: abbatech-refresh-localprod
     restart: unless-stopped
     env_file:
