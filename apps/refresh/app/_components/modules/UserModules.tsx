@@ -114,8 +114,8 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
       size
     );
 
-    const blob = await new Promise((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg")
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg")
     );
 
     if (!blob) return;
@@ -229,6 +229,10 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
                   setProfileTempImage(file);
                   setProfileTempPreview(preview);
 
+                  setCrop({ x: 0, y: 0 });
+                  setZoom(1);
+                  setCroppedAreaPixels(null);
+
                   setIsPreviewOpen(true);
                 }}
               />
@@ -238,6 +242,10 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
                 className="mt-2 w-24 h-24 overflow-hidden rounded cursor-zoom-in"
                 onClick={() => {
                   if (profileTempPreview || userForm.picture) {
+                    setCrop({ x: 0, y: 0 });
+                    setZoom(1);
+                    setCroppedAreaPixels(null);
+
                     setIsPreviewOpen(true);
                   }
                 }}
@@ -248,7 +256,7 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
                       ? profileTempPreview
                       : userForm.picture
                         ? `/abbatech/refresh${userForm.picture}`
-                        : ""
+                        : undefined
                   }
                   alt="preview"
                   className="w-full h-full object-cover"
@@ -723,7 +731,7 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
                       ? profileTempPreview
                       : userForm.picture
                         ? `/abbatech/refresh${userForm.picture}`
-                        : ""
+                        : undefined
                   }
                   crop={crop}
                   zoom={zoom}
@@ -755,7 +763,11 @@ export function UserModules({ manager }: { manager: RefreshManager }) {
                 className="absolute top-4 right-4 text-white text-2xl"
                 onClick={() => {
                   setIsPreviewOpen(false);
-                  
+
+                  setCrop({ x: 0, y: 0 });
+                  setZoom(1);
+                  setCroppedAreaPixels(null);
+
                   if (!profileTempImage) {
                     setProfileTempPreview("");
                   }
