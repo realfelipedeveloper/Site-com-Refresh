@@ -356,7 +356,7 @@ export function ContentModules({ manager }: { manager: RefreshManager }) {
               <div className="flex gap-3">
                 <ActionButton onClick={() => setView("content-list")}>Voltar</ActionButton>
                 <ActionButton tone="green" type="submit">
-                  Incluir
+                  {contentForm.id ? "Salvar alterações" : "Incluir"}
                 </ActionButton>
               </div>
             </div>
