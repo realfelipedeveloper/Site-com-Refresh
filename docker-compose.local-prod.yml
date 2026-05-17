@@ -45,6 +45,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env.local-prod
+    environment:
+      ALLOW_EMPTY_DATABASE_BOOTSTRAP: ${ALLOW_EMPTY_DATABASE_BOOTSTRAP:-false}
+      REQUIRE_DATABASE_DATA: ${REQUIRE_DATABASE_DATA:-true}
     ports:
       - "4333:3333"
     depends_on:
@@ -92,4 +95,8 @@ services:
 
 volumes:
   mysql_localprod_data:
+    external: true
+    name: refresh-local-prod_mysql_localprod_data
   minio_localprod_data:
+    external: true
+    name: refresh-local-prod_minio_localprod_data

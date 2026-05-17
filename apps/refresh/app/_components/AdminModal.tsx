@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, type ReactNode } from "react";
+import { useEffect, useId, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 type AdminModalSize = "md" | "lg" | "xl" | "full";
@@ -23,6 +23,20 @@ const sizeClasses: Record<AdminModalSize, string> = {
   full: "max-w-[1480px]"
 };
 
+function subscribeToClientReady(onStoreChange: () => void) {
+  const timeoutId = window.setTimeout(onStoreChange, 0);
+
+  return () => window.clearTimeout(timeoutId);
+}
+
+function getClientPortalTarget() {
+  return document.body;
+}
+
+function getServerPortalTarget() {
+  return null;
+}
+
 export function AdminModal({
   children,
   description,
@@ -35,9 +49,10 @@ export function AdminModal({
 }: AdminModalProps) {
   const titleId = useId();
   const descriptionId = useId();
+  const portalTarget = useSyncExternalStore(subscribeToClientReady, getClientPortalTarget, getServerPortalTarget);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || !portalTarget) {
       return;
     }
 
@@ -62,9 +77,7 @@ export function AdminModal({
       document.body.style.margin = previousBodyMargin;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose]);
-
-  const portalTarget = typeof document === "undefined" ? null : document.body;
+  }, [isOpen, onClose, portalTarget]);
 
   if (!isOpen || !portalTarget) {
     return null;

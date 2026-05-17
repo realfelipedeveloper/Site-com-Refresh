@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
-import { ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { PrismaService } from "./infra/prisma.service";
 import { HealthController } from "./modules/health.controller";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -17,7 +18,7 @@ import { UploadService } from "./modules/upload/upload.service";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ".env"
+      envFilePath: [".env", "../../.env"]
     }),
     ThrottlerModule.forRoot([
       {
@@ -34,6 +35,13 @@ import { UploadService } from "./modules/upload/upload.service";
     ManagementModule
   ],
   controllers: [HealthController, UploadController],
-  providers: [PrismaService, UploadService]
+  providers: [
+    PrismaService,
+    UploadService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard
+    }
+  ]
 })
 export class AppModule {}

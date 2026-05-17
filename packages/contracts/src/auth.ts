@@ -54,3 +54,21 @@ export type LoginResponse = {
 export type SwitchProfileResponse = {
   accessToken: string;
 };
+
+export type ForgotPasswordRequest = {
+  email: string;
+};
+
+export type ForgotPasswordResponse = {
+  message: string;
+};
+
+export type ResetPasswordRequest = {
+  password: string;
+  passwordConfirmation: string;
+  token: string;
+};
+
+export type ResetPasswordResponse = {
+  message: string;
+};

@@ -3,13 +3,19 @@
 import { RefreshLogin } from "./_components/RefreshLogin";
 import { RefreshModules } from "./_components/RefreshModules";
 import { RefreshShell } from "./_components/RefreshShell";
+import type { PasswordRecoveryModalMode } from "./_components/PasswordRecoveryModals";
 import { roleName } from "./_lib/utils";
 import { useRefreshManager } from "./_hooks/useRefreshManager";
 
-export default function RefreshPageClient() {
+type RefreshPageClientProps = {
+  recoveryModalMode?: PasswordRecoveryModalMode | null;
+  resetToken?: string;
+};
+
+export default function RefreshPageClient({ recoveryModalMode = null, resetToken }: RefreshPageClientProps) {
   const manager = useRefreshManager();
 
-  if (!manager.token || !manager.user) {
+  if (recoveryModalMode || !manager.token || !manager.user) {
     return (
       <RefreshLogin
         error={manager.error}
@@ -18,6 +24,8 @@ export default function RefreshPageClient() {
         onPasswordChange={manager.setPassword}
         onSubmit={manager.handleLogin}
         password={manager.password}
+        recoveryModalMode={recoveryModalMode}
+        resetToken={resetToken}
         sessionAlert={manager.sessionAlert}
         success={manager.success}
       />

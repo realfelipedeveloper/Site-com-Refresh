@@ -7,6 +7,7 @@ import { AuthService } from "./auth.service";
 import { PrismaService } from "../../infra/prisma.service";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 import { PermissionsGuard } from "./permissions.guard";
+import { PasswordResetMailService } from "./password-reset-mail.service";
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { PermissionsGuard } from "./permissions.guard";
     })
   ],
   controllers: [AuthController],
-  providers: [AuthService, PrismaService, JwtAuthGuard, PermissionsGuard, Reflector],
+  providers: [AuthService, PasswordResetMailService, PrismaService, JwtAuthGuard, PermissionsGuard, Reflector],
   exports: [AuthService, JwtAuthGuard, PermissionsGuard, JwtModule]
 })
 export class AuthModule {}

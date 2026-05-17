@@ -36,14 +36,41 @@ abbatech/
 
 ```bash
 cp .env.example .env
-npm install
-docker compose up --build
+npm run dev
 ```
+
+O ambiente de desenvolvimento é full Docker: o Compose sobe MySQL, MinIO, Mailpit, API, Portal e Refresh. As aplicações rodam em modo watch dentro dos containers, com o código local montado em volume.
+
+Os volumes de dados do MySQL e MinIO são externos e obrigatórios: `cms_mysql_data` e `cms_minio_data`. Isso impede que o Compose crie um banco vazio silenciosamente por troca de nome de volume.
+
+Em uma máquina nova, inicialize os volumes de forma explícita:
+
+```bash
+npm run dev:init-volumes
+npm run dev
+```
+
+Se você espera reaproveitar dados existentes, não rode `dev:init-volumes`; anexe/restaure o volume correto antes de subir o ambiente.
+
+Se precisar rodar as aplicações diretamente no host para depuração pontual, use `npm install` e `npm run dev:host`, ajustando `DATABASE_URL` e `SMTP_HOST` para `localhost`.
+
+Por padrão, o dev usa Mailpit para capturar e-mails em `http://localhost:8025`. Para testar envio real, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE` e `SMTP_FROM` no `.env`; o Compose repassa esses valores para a API. Não commite credenciais reais.
+
+## Bancos e volumes em local-prod/production
+
+`local-prod` e `production` também usam dados persistentes obrigatórios. O Compose não deve criar volumes de banco automaticamente nesses ambientes.
+
+- `docker-compose.local-prod.yml` usa volumes externos fixos: `refresh-local-prod_mysql_localprod_data` e `refresh-local-prod_minio_localprod_data`.
+- `docker-compose.prod.yml` exige `MYSQL_DATA_VOLUME` e `MINIO_DATA_VOLUME` apontando para os volumes reais existentes do servidor.
+- A API executa `scripts/guard-database-bootstrap.mjs` antes de `prisma migrate deploy` e seed. Se o banco não tiver `_prisma_migrations` ou estiver sem usuários, o start é bloqueado.
+- Para uma primeira instalação realmente intencional, defina `ALLOW_EMPTY_DATABASE_BOOTSTRAP=true` somente durante esse bootstrap inicial, com backup/restore ou criação de dados planejada. Depois volte para `false`.
+
+Dados não ficam dentro da imagem Docker nem no repositório: eles precisam estar em volume externo existente, banco gerenciado ou backup restaurado antes do deploy.
 
 ## Atualizar schema
 ```bash
-npx prisma migrate deploy -w @abbatech/api 
-npm run prisma:seed -w @abbatech/api
+docker compose exec api npm run prisma:migrate -w @abbatech/api
+docker compose exec api npm run prisma:seed -w @abbatech/api
 ```
 
 ## Servicos:
@@ -59,7 +86,7 @@ npm run prisma:seed -w @abbatech/api
 - E-mail inicial: `admin@abbatech.local`
 - Senha inicial: `Refresh123!`
 
-Ao subir o ambiente, a API aplica as migrations e executa o seed inicial automaticamente.
+Ao subir o dev, a API aplica as migrations e executa o seed inicial automaticamente. Em `local-prod` e `production`, essa etapa só prossegue se o banco existente passar pela guarda de bootstrap.
 
 ## Qualidade
 

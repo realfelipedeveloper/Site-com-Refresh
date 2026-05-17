@@ -1,13 +1,44 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { verify } from "argon2";
-import { createHash } from "crypto";
+import type { Prisma } from "@prisma/client";
+import { hash, verify } from "argon2";
+import { createHash, randomBytes } from "crypto";
 import { PrismaService } from "../../infra/prisma.service";
 import type { AuthenticatedUser } from "./auth.types";
+import { PasswordResetMailService } from "./password-reset-mail.service";
+
+export const PASSWORD_RESET_GENERIC_MESSAGE =
+  "Se os dados informados estiverem vinculados a uma conta ativa, enviaremos instruções para recuperação de acesso.";
+
+export const PASSWORD_RESET_SUCCESS_MESSAGE = "Senha redefinida com sucesso.";
+
+export const PASSWORD_RESET_INVALID_LINK_MESSAGE =
+  "Este link de recuperação é inválido ou expirou. Solicite uma nova recuperação de acesso.";
+
+export function hashPasswordResetToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function validatePasswordPolicy(password: string) {
+  if (password.length < 8) {
+    return "A senha deve ter pelo menos 8 caracteres.";
+  }
+
+  if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
+    return "A senha deve combinar letras e números.";
+  }
+
+  return null;
+}
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
+    private readonly configService: ConfigService,
+    private readonly mailService: PasswordResetMailService,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService
   ) {}
@@ -213,6 +244,142 @@ export class AuthService {
     };
   }
 
+  async forgotPassword(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const now = new Date();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail }
+    });
+
+    if (!user || !this.canRecoverPassword(user)) {
+      return { message: PASSWORD_RESET_GENERIC_MESSAGE };
+    }
+
+    const token = this.generatePasswordResetToken();
+    const tokenHash = hashPasswordResetToken(token);
+    const expiresInMinutes = this.getPasswordResetTtlMinutes();
+    const expiresAt = new Date(now.getTime() + expiresInMinutes * 60_000);
+
+    await this.prisma.passwordResetToken.updateMany({
+      where: {
+        userId: user.id,
+        usedAt: null
+      },
+      data: {
+        usedAt: now
+      }
+    });
+
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt
+      }
+    });
+
+    await this.auditPasswordResetRequested(user.id, expiresAt);
+
+    try {
+      await this.mailService.sendPasswordResetInstructions({
+        expiresInMinutes,
+        resetUrl: this.buildPasswordResetUrl(token),
+        to: user.email,
+        userName: user.name
+      });
+    } catch (mailError) {
+      this.logger.error(
+        `Falha ao enviar instrucoes de recuperacao para o usuario ${user.id}.`,
+        mailError instanceof Error ? mailError.stack : undefined
+      );
+    }
+
+    return { message: PASSWORD_RESET_GENERIC_MESSAGE };
+  }
+
+  async resetPassword(token: string, password: string, passwordConfirmation: string) {
+    if (password !== passwordConfirmation) {
+      throw new BadRequestException("As senhas informadas não conferem.");
+    }
+
+    const passwordPolicyError = validatePasswordPolicy(password);
+    if (passwordPolicyError) {
+      throw new BadRequestException(passwordPolicyError);
+    }
+
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: {
+        tokenHash: hashPasswordResetToken(token)
+      },
+      include: {
+        user: true
+      }
+    });
+
+    const now = new Date();
+    if (
+      !resetToken ||
+      resetToken.usedAt ||
+      resetToken.expiresAt <= now ||
+      !this.canRecoverPassword(resetToken.user)
+    ) {
+      throw new BadRequestException(PASSWORD_RESET_INVALID_LINK_MESSAGE);
+    }
+
+    const passwordHash = await hash(password);
+
+    await this.prisma.$transaction(async (transaction: Prisma.TransactionClient) => {
+      const consumed = await transaction.passwordResetToken.updateMany({
+        where: {
+          id: resetToken.id,
+          usedAt: null
+        },
+        data: {
+          usedAt: now
+        }
+      });
+
+      if (consumed.count !== 1) {
+        throw new BadRequestException(PASSWORD_RESET_INVALID_LINK_MESSAGE);
+      }
+
+      await transaction.user.update({
+        where: { id: resetToken.userId },
+        data: {
+          forcePasswordChange: false,
+          passwordHash
+        }
+      });
+
+      await transaction.passwordResetToken.updateMany({
+        where: {
+          userId: resetToken.userId,
+          id: {
+            not: resetToken.id
+          },
+          usedAt: null
+        },
+        data: {
+          usedAt: now
+        }
+      });
+
+      await transaction.auditLog.create({
+        data: {
+          action: "auth.password_reset_completed",
+          entityType: "User",
+          entityId: resetToken.userId,
+          metadata: {
+            resetTokenId: resetToken.id
+          }
+        }
+      });
+    });
+
+    return { message: PASSWORD_RESET_SUCCESS_MESSAGE };
+  }
+
   private resolveActiveRole(
     roles: Array<{
       role: {
@@ -279,5 +446,63 @@ export class AuthService {
   private normalizeCpf(value: string) {
     const digits = value.replace(/\D/g, "");
     return digits.length > 0 ? digits : value;
+  }
+
+  private generatePasswordResetToken() {
+    return randomBytes(32).toString("base64url");
+  }
+
+  private getPasswordResetTtlMinutes() {
+    const configuredValue = Number(this.configService.get<string>("PASSWORD_RESET_TOKEN_TTL_MINUTES") ?? 30);
+
+    if (!Number.isFinite(configuredValue) || configuredValue < 15 || configuredValue > 60) {
+      return 30;
+    }
+
+    return Math.floor(configuredValue);
+  }
+
+  private buildPasswordResetUrl(token: string) {
+    const configuredRefreshUrl =
+      this.configService.get<string>("REFRESH_APP_URL")?.trim() ||
+      this.configService.get<string>("NEXT_PUBLIC_REFRESH_URL")?.trim() ||
+      this.configService.get<string>("APP_URL")?.trim() ||
+      "http://localhost:3101";
+    const url = new URL(configuredRefreshUrl);
+    const normalizedPath = url.pathname.replace(/\/$/, "");
+    const refreshBasePath = "/abbatech/refresh";
+
+    url.pathname = normalizedPath.endsWith(refreshBasePath)
+      ? `${normalizedPath}/reset-password`
+      : `${normalizedPath}${refreshBasePath}/reset-password`;
+    url.search = "";
+    url.searchParams.set("token", token);
+
+    return url.toString();
+  }
+
+  private canRecoverPassword(user: { isActive: boolean; status: string }) {
+    return user.isActive && !["Inativo", "Excluído"].includes(user.status);
+  }
+
+  private async auditPasswordResetRequested(userId: string, expiresAt: Date) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          action: "auth.password_reset_requested",
+          entityType: "User",
+          entityId: userId,
+          metadata: {
+            expiresAt: expiresAt.toISOString()
+          }
+        }
+      });
+    } catch (auditError) {
+      this.logger.warn(
+        `Falha ao registrar auditoria de recuperação para o usuario ${userId}: ${
+          auditError instanceof Error ? auditError.message : "erro desconhecido"
+        }`
+      );
+    }
   }
 }

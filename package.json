@@ -10,7 +10,9 @@
     "node": ">=20.11.0"
   },
   "scripts": {
-    "dev": "npm-run-all --parallel dev:api dev:portal dev:refresh",
+    "dev": "node scripts/ensure-dev-volumes.mjs && docker compose up --build",
+    "dev:init-volumes": "docker volume create cms_mysql_data && docker volume create cms_minio_data",
+    "dev:host": "npm-run-all --parallel dev:api dev:portal dev:refresh",
     "dev:api": "npm run dev -w @abbatech/api",
     "dev:portal": "npm run dev -w @abbatech/portal",
     "dev:refresh": "npm run dev -w @abbatech/refresh",
