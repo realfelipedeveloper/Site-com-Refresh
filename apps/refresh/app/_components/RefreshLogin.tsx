@@ -1,7 +1,9 @@
 import type { FormEvent } from "react";
 import Image from "next/image";
+import Link from "next/link";
 
 import { ActionButton } from "./ActionButton";
+import { PasswordRecoveryModals, type PasswordRecoveryModalMode } from "./PasswordRecoveryModals";
 import { refreshLoginBackgroundSrc, refreshLogoSrc } from "../_lib/assets";
 
 type SessionAlert = {
@@ -12,6 +14,8 @@ type SessionAlert = {
 type RefreshLoginProps = {
   identifier: string;
   password: string;
+  recoveryModalMode: PasswordRecoveryModalMode | null;
+  resetToken?: string;
   error: string;
   success: string;
   sessionAlert: SessionAlert;
@@ -23,6 +27,8 @@ type RefreshLoginProps = {
 export function RefreshLogin({
   identifier,
   password,
+  recoveryModalMode,
+  resetToken,
   error,
   success,
   sessionAlert,
@@ -90,9 +96,9 @@ export function RefreshLogin({
                 </label>
 
                 <div className="flex items-center justify-between border-t border-[#d7e3f1] pt-5">
-                  <button className="text-[13px] font-bold text-[#0f58d8] hover:underline" type="button">
+                  <Link className="text-[13px] font-bold text-[#0f58d8] hover:underline" href="/forgot-password">
                     Lembrar senha
-                  </button>
+                  </Link>
                   <ActionButton tone="blue" type="submit">
                     Entrar
                   </ActionButton>
@@ -147,6 +153,7 @@ export function RefreshLogin({
           </div>
         </aside>
       </section>
+      <PasswordRecoveryModals mode={recoveryModalMode} resetToken={resetToken} />
     </main>
   );
 }

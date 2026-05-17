@@ -1,23 +1,33 @@
 # Dependencies
 node_modules/
+**/node_modules/
 
 # Build / framework
 .next/
+**/.next/
 out/
 dist/
+**/dist/
 build/
+**/build/
 coverage/
+**/coverage/
 .turbo/
+**/.turbo/
 
 # Temporary / cache
 tmp/
 temp/
 .cache/
+**/.cache/
 .eslintcache
+**/.eslintcache
 *.tsbuildinfo
+**/*.tsbuildinfo
 
 # Logs
 logs/
+**/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -29,6 +39,10 @@ pnpm-debug.log*
 .env.*
 !.env.example
 !.env*.example
+!.env.local-prod.example
+!.env.production.dokploy.example
+!**/.env.example
+!**/.env*.example
 
 # Local databases / SQLite / Prisma local artifacts
 apps/api/prisma/dev.db
@@ -39,16 +53,19 @@ apps/api/prisma/dev.db-journal
 
 # Uploads / generated media locais
 uploads/
+**/uploads/
 storage/
+**/storage/
 public/uploads/
+**/public/uploads/
 public/storage/
+**/public/storage/
 
 # Docker
 .docker/
 docker-data/
 docker/mysql/data/
 docker/postgres/data/
-**/data/
 docker-compose.override.yml
 
 # Dokploy / deploy local artifacts
@@ -65,11 +82,20 @@ Thumbs.db
 
 # Test artifacts
 .playwright/
+**/.playwright/
 test-results/
+**/test-results/
 
 # Misc project files
 Manager/
 handoff-status.md
+*.local.md
+*.secret.md
 
 # Local database backups
 backups/
+**/backups/
+
+# Docs
+docs/
+*.md
