@@ -11,6 +11,40 @@ import type {
   ViewKey
 } from "./types";
 
+export const refreshNavigationStorageKey = "refresh_navigation_state";
+
+const topMenuKeys: TopMenuKey[] = ["content", "administration", "system", "newsletter"];
+const viewKeys: ViewKey[] = [
+  "content-list",
+  "content-editor",
+  "sections-tree",
+  "section-editor",
+  "masks",
+  "templates",
+  "elements",
+  "users",
+  "groups",
+  "permissions",
+  "applications",
+  "emails",
+  "newsletter",
+  "statistics"
+];
+
+export type RefreshNavigationState = {
+  profileId: string;
+  topMenu: TopMenuKey;
+  view: ViewKey;
+};
+
+export type AdminPostLoginRedirectInput = {
+  isAuthenticated: boolean;
+  isLoadingSession: boolean;
+  isPostLogin: boolean;
+  user: LoggedUser | null;
+  currentView?: ViewKey;
+};
+
 export function getPermissionLabel(code: string) {
   return permissionLabelMap[code] ?? code.replaceAll(".", " / ");
 }
@@ -96,6 +130,76 @@ export function getRoleKind(roleName: string | null | undefined) {
   }
 
   return "publisher";
+}
+
+export function isAdministratorRole(
+  role: Pick<LoggedUser["roles"][number], "name" | "functionName"> | null | undefined
+) {
+  const normalizedName = role?.name?.toLowerCase() ?? "";
+  const normalizedFunctionName = role?.functionName?.toLowerCase() ?? "";
+
+  return normalizedName.includes("administrador") || normalizedFunctionName.includes("administrador");
+}
+
+export function isUserLinkedToAdministrator(user: LoggedUser | null | undefined) {
+  return user?.roles.some((role) => isAdministratorRole(role)) ?? false;
+}
+
+export function shouldRedirectAdminAfterLogin({
+  isAuthenticated,
+  isLoadingSession,
+  isPostLogin,
+  user,
+  currentView
+}: AdminPostLoginRedirectInput) {
+  if (!isAuthenticated || isLoadingSession || !isPostLogin || !user) {
+    return false;
+  }
+
+  if (currentView === "users") {
+    return false;
+  }
+
+  return isUserLinkedToAdministrator(user);
+}
+
+function isTopMenuKey(value: unknown): value is TopMenuKey {
+  return typeof value === "string" && topMenuKeys.includes(value as TopMenuKey);
+}
+
+function isViewKey(value: unknown): value is ViewKey {
+  return typeof value === "string" && viewKeys.includes(value as ViewKey);
+}
+
+export function parseRefreshNavigationState(value: string | null): RefreshNavigationState | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+
+    if (
+      typeof parsed.profileId !== "string" ||
+      parsed.profileId.trim().length === 0 ||
+      !isTopMenuKey(parsed.topMenu) ||
+      !isViewKey(parsed.view)
+    ) {
+      return null;
+    }
+
+    return {
+      profileId: parsed.profileId,
+      topMenu: parsed.topMenu,
+      view: parsed.view
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function serializeRefreshNavigationState(navigation: RefreshNavigationState) {
+  return JSON.stringify(navigation);
 }
 
 export function resolveApplicationView(applicationName: string, link: string): ViewKey | null {
@@ -265,6 +369,32 @@ export function getDefaultNavigation(
     topMenu: fallbackTopMenu,
     view: menuConfig.groups[fallbackTopMenu]?.[0]?.key ?? desiredView
   };
+}
+
+export function resolveNavigationForView(view: ViewKey, menuConfig: MenuConfig) {
+  const match = (Object.entries(menuConfig.groups) as Array<[TopMenuKey, MenuConfig["groups"][TopMenuKey]]>)
+    .find(([, items]) => items.some((item) => item.key === view));
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    topMenu: match[0],
+    view
+  };
+}
+
+export function resolveStoredRefreshNavigation(
+  storedNavigation: RefreshNavigationState | null,
+  profileId: string,
+  menuConfig: MenuConfig
+) {
+  if (!storedNavigation || storedNavigation.profileId !== profileId) {
+    return null;
+  }
+
+  return resolveNavigationForView(storedNavigation.view, menuConfig);
 }
 
 export function getMenuConfig(role: LoggedUser["roles"][number] | null): MenuConfig {
