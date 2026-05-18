@@ -67,6 +67,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
         setSections(nextSections);
         setContents(nextContents);
         setManagement(nextManagement);
+        setProfileMenuOpen(false);
 
         const shouldResetShell = selectedProfileId !== firstProfileId || !selectedProfileId;
         if (shouldResetShell) {
@@ -96,6 +97,8 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
           setToken("");
           setUser(null);
           setError("");
+          setProfileMenuOpen(false);
+          setExpandedTopMenu(null);
 
           if (hadAuthenticatedSession) {
             setSessionAlert({
@@ -118,6 +121,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       setExpandedTopMenu,
       setManagement,
       setMeta,
+      setProfileMenuOpen,
       setSections,
       setSelectedProfileId,
       setToken,
@@ -170,13 +174,24 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       window.localStorage.setItem("refresh_access_token", response.accessToken);
       window.localStorage.setItem("refresh_authenticated_session", "true");
 
+      setProfileMenuOpen(false);
+      setExpandedTopMenu(null);
       setToken(response.accessToken);
       setSessionAlert(null);
       // setSuccess("Login realizado com sucesso.");
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Falha ao autenticar.");
     }
-  }, [identifier, password, setError, setSessionAlert, setSuccess, setToken]);
+  }, [
+    identifier,
+    password,
+    setError,
+    setExpandedTopMenu,
+    setProfileMenuOpen,
+    setSessionAlert,
+    setSuccess,
+    setToken
+  ]);
 
   const handleLogout = useCallback(() => {
     window.localStorage.removeItem("refresh_access_token");
@@ -187,7 +202,17 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
     setSessionAlert(null);
     setSuccess("");
     setError("");
-  }, [setError, setSessionAlert, setSuccess, setToken, setUser]);
+    setProfileMenuOpen(false);
+    setExpandedTopMenu(null);
+  }, [
+    setError,
+    setExpandedTopMenu,
+    setProfileMenuOpen,
+    setSessionAlert,
+    setSuccess,
+    setToken,
+    setUser
+  ]);
 
   const switchProfile = useCallback(async (profileId: string) => {
     const nextProfile = user?.roles.find((role) => role.id === profileId);

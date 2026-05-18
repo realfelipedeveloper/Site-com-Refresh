@@ -38,17 +38,29 @@ export default function RefreshPageClient({ recoveryModalMode = null, resetToken
       expandedTopMenu={manager.expandedTopMenu}
       isPending={manager.isPending}
       menuGroups={manager.activeMenuConfig.groups}
-      onLogout={manager.handleLogout}
+      onCloseProfileMenu={() => manager.setProfileMenuOpen(false)}
+      onCloseTopMenu={() => manager.setExpandedTopMenu(null)}
+      onLogout={() => {
+        manager.setProfileMenuOpen(false);
+        manager.setExpandedTopMenu(null);
+        manager.handleLogout();
+      }}
       onSelectView={(nextTopMenu, nextView) => {
+        manager.setProfileMenuOpen(false);
         manager.setTopMenu(nextTopMenu);
         manager.setView(nextView);
         manager.setExpandedTopMenu(null);
       }}
       onSwitchProfile={(profileId) => {
+        manager.setProfileMenuOpen(false);
         void manager.switchProfile(profileId);
       }}
-      onToggleProfileMenu={() => manager.setProfileMenuOpen((current) => !current)}
+      onToggleProfileMenu={() => {
+        manager.setExpandedTopMenu(null);
+        manager.setProfileMenuOpen((current) => !current);
+      }}
       onToggleTopMenu={(menuKey) => {
+        manager.setProfileMenuOpen(false);
         manager.setTopMenu(menuKey);
         manager.setExpandedTopMenu((current) => (current === menuKey ? null : menuKey));
       }}

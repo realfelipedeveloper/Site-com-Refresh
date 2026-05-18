@@ -1,13 +1,18 @@
+"use client";
+
 import { getBreadcrumbLabel, getBreadcrumbTop, getViewTitle, resolveUserPictureUrl } from "../_lib/utils";
 import type { RefreshShellProps } from "../_lib/types";
 import Image from "next/image";
 import { refreshLogoSrc } from "../_lib/assets";
+import { useId } from "react";
+import { useDropdownOutsideClick } from "../_hooks/useDropdownOutsideClick";
 
 export function RefreshShell({
   user,
   roleLabel,
   profileMenuOpen,
   onToggleProfileMenu,
+  onCloseProfileMenu,
   selectedProfileId,
   onSwitchProfile,
   onLogout,
@@ -15,6 +20,7 @@ export function RefreshShell({
   topMenu,
   expandedTopMenu,
   onToggleTopMenu,
+  onCloseTopMenu,
   menuGroups,
   view,
   onSelectView,
@@ -26,6 +32,9 @@ export function RefreshShell({
 
   const userPictureUrl = resolveUserPictureUrl(user?.picture);
   const userInitial = user?.name?.trim().slice(0, 1).toUpperCase() ?? "U";
+  const profileMenuId = useId();
+  const profileMenuRef = useDropdownOutsideClick<HTMLDivElement>(profileMenuOpen, onCloseProfileMenu);
+  const topMenuRef = useDropdownOutsideClick<HTMLElement>(Boolean(expandedTopMenu), onCloseTopMenu);
 
   return (
     <main className="min-h-screen bg-[#edf3fb] text-[#16324f]">
@@ -50,14 +59,18 @@ export function RefreshShell({
               </div>
             </div>
 
-            <nav className="mt-8 space-y-3">
+            <nav className="mt-8 space-y-3" ref={topMenuRef}>
               {topMenus.map((menu) => {
                 const isCurrentMenu = topMenu === menu.key;
-                const isOpen = expandedTopMenu === menu.key || isCurrentMenu;
+                const isOpen = expandedTopMenu === menu.key;
+                const topMenuPanelId = `refresh-top-menu-${menu.key}`;
 
                 return (
                   <div className="rounded-[8px] border border-white/10 bg-white/[0.03] p-2" key={menu.key}>
                     <button
+                      aria-controls={topMenuPanelId}
+                      aria-expanded={isOpen}
+                      aria-haspopup="menu"
                       className={`flex w-full items-center justify-between rounded-[6px] px-3 py-2.5 text-left text-[13px] font-bold uppercase tracking-[0.08em] transition ${
                         isCurrentMenu
                           ? "bg-white text-[#10233d] shadow-[0_10px_24px_rgba(0,0,0,0.18)]"
@@ -73,7 +86,7 @@ export function RefreshShell({
                     </button>
 
                     {isOpen ? (
-                      <div className="mt-2 space-y-1 border-l border-white/10 pl-2">
+                      <div className="mt-2 space-y-1 border-l border-white/10 pl-2" id={topMenuPanelId}>
                         {(menuGroups[menu.key] ?? []).map((item) => (
                           <button
                             key={item.key}
@@ -107,8 +120,11 @@ export function RefreshShell({
                 <p className="mt-1 text-[15px] font-semibold text-[#10233d]">Painel administrativo</p>
               </div>
 
-              <div className="relative">
+              <div className="relative" ref={profileMenuRef}>
                 <button
+                  aria-controls={profileMenuId}
+                  aria-expanded={profileMenuOpen}
+                  aria-haspopup="menu"
                   className="flex min-w-[280px] items-center justify-between gap-4 rounded-[8px] border border-[#b9cde2] bg-white px-3 py-2 text-left shadow-[0_12px_28px_rgba(15,33,57,0.08)] transition hover:border-[#1f6feb]"
                   onClick={onToggleProfileMenu}
                   type="button"
@@ -134,7 +150,11 @@ export function RefreshShell({
                 </button>
 
                 {profileMenuOpen ? (
-                  <div className="absolute right-0 top-full z-40 mt-2 w-[340px] overflow-hidden rounded-[8px] border border-[#b9cde2] bg-white text-[#16324f] shadow-[0_24px_54px_rgba(15,33,57,0.2)]">
+                  <div
+                    className="absolute right-0 top-full z-40 mt-2 w-[340px] overflow-hidden rounded-[8px] border border-[#b9cde2] bg-white text-[#16324f] shadow-[0_24px_54px_rgba(15,33,57,0.2)]"
+                    id={profileMenuId}
+                    role="menu"
+                  >
                     <div className="border-b border-[#d7e3f1] bg-[#10233d] px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-white">
                       Perfis do usuário
                     </div>
@@ -144,7 +164,11 @@ export function RefreshShell({
                         className={`flex w-full items-start justify-between gap-3 border-b border-[#eef3f8] px-4 py-3 text-left text-[14px] transition hover:bg-[#f4f9ff] ${
                           selectedProfileId === role.id ? "bg-[#edf5ff]" : ""
                         }`}
-                        onClick={() => onSwitchProfile(role.id)}
+                        onClick={() => {
+                          onCloseProfileMenu();
+                          onSwitchProfile(role.id);
+                        }}
+                        role="menuitem"
                         type="button"
                       >
                         <span>
@@ -160,7 +184,11 @@ export function RefreshShell({
                     ))}
                     <button
                       className="w-full px-4 py-3 text-left text-[14px] font-bold text-[#c7424d] transition hover:bg-[#fff3f4]"
-                      onClick={onLogout}
+                      onClick={() => {
+                        onCloseProfileMenu();
+                        onLogout();
+                      }}
+                      role="menuitem"
                       type="button"
                     >
                       Sair do sistema

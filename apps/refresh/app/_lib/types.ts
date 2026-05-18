@@ -538,6 +538,7 @@ export type RefreshShellProps = {
   roleLabel: string;
   profileMenuOpen: boolean;
   onToggleProfileMenu: () => void;
+  onCloseProfileMenu: () => void;
   selectedProfileId: string;
   onSwitchProfile: (profileId: string) => void;
   onLogout: () => void;
@@ -545,6 +546,7 @@ export type RefreshShellProps = {
   topMenu: TopMenuKey;
   expandedTopMenu: TopMenuKey | null;
   onToggleTopMenu: (menuKey: TopMenuKey) => void;
+  onCloseTopMenu: () => void;
   menuGroups: MenuConfig["groups"];
   view: ViewKey;
   onSelectView: (topMenuKey: TopMenuKey, viewKey: ViewKey) => void;
