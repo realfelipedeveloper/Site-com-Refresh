@@ -26,4 +26,4 @@ COPY --from=base /app /app
 
 EXPOSE 3333
 
-CMD ["sh", "-c", "npm run prisma:generate -w @abbatech/api && node scripts/guard-database-bootstrap.mjs && npm run prisma:migrate -w @abbatech/api && npm run prisma:seed -w @abbatech/api && node apps/api/dist/src/main.js"]
+CMD ["sh", "-c", "node scripts/guard-production-config.mjs && npm run prisma:generate -w @abbatech/api && node scripts/guard-database-bootstrap.mjs && npm run prisma:migrate -w @abbatech/api && npm run prisma:seed -w @abbatech/api && node apps/api/dist/src/main.js"]
