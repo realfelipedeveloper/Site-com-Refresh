@@ -1,16 +1,29 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect } from "react";
+import { FormEvent, useCallback, useEffect, useRef } from "react";
 
 import { emptyManagementBootstrap } from "../_lib/constants";
 import { apiRequest, safeApiRequest } from "../_lib/api";
-import { getDefaultNavigation, getMenuConfig } from "../_lib/utils";
+import {
+  getDefaultNavigation,
+  getMenuConfig,
+  parseRefreshNavigationState,
+  refreshNavigationStorageKey,
+  resolveNavigationForView,
+  resolveStoredRefreshNavigation,
+  serializeRefreshNavigationState,
+  shouldRedirectAdminAfterLogin
+} from "../_lib/utils";
 import type { Content, EditorMeta, LoggedUser, ManagementBootstrap, Section } from "../_lib/types";
 import type { useRefreshManagerState } from "./useRefreshManagerState";
 
 type RefreshManagerState = ReturnType<typeof useRefreshManagerState>;
+type BootstrapOptions = {
+  isPostLogin?: boolean;
+};
 
 export function useRefreshManagerSession(state: RefreshManagerState) {
+  const postLoginRedirectPendingRef = useRef(false);
   const {
     identifier,
     password,
@@ -31,8 +44,10 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
     setUser,
     setView,
     startTransition,
+    topMenu,
     token,
-    user
+    user,
+    view
   } = state;
 
   useEffect(() => {
@@ -44,7 +59,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
   }, [setToken]);
 
   const bootstrap = useCallback(
-    async (accessToken: string) => {
+    async (accessToken: string, options: BootstrapOptions = {}) => {
       try {
         setError("");
 
@@ -60,6 +75,20 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
         const activeProfile = profile.roles.find((role) => role.id === firstProfileId) ?? profile.roles[0] ?? null;
         const initialMenuConfig = getMenuConfig(activeProfile);
         const defaultNavigation = getDefaultNavigation(activeProfile, initialMenuConfig);
+        const restoredNavigation = resolveStoredRefreshNavigation(
+          parseRefreshNavigationState(window.localStorage.getItem(refreshNavigationStorageKey)),
+          firstProfileId,
+          initialMenuConfig
+        );
+        const currentNavigation = resolveNavigationForView(view, initialMenuConfig);
+        const usersNavigation = resolveNavigationForView("users", initialMenuConfig);
+        const shouldApplyAdminPostLoginRedirect = shouldRedirectAdminAfterLogin({
+          isAuthenticated: Boolean(accessToken),
+          isLoadingSession: false,
+          isPostLogin: Boolean(options.isPostLogin),
+          user: profile,
+          currentView: view
+        });
 
         setUser(profile);
         setSelectedProfileId(firstProfileId);
@@ -70,9 +99,15 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
         setProfileMenuOpen(false);
 
         const shouldResetShell = selectedProfileId !== firstProfileId || !selectedProfileId;
-        if (shouldResetShell) {
-          setTopMenu(defaultNavigation.topMenu);
-          setView(defaultNavigation.view);
+        const nextNavigation = shouldApplyAdminPostLoginRedirect
+          ? usersNavigation ?? defaultNavigation
+          : shouldResetShell
+            ? restoredNavigation ?? defaultNavigation
+            : currentNavigation ?? restoredNavigation ?? defaultNavigation;
+
+        if (shouldApplyAdminPostLoginRedirect || shouldResetShell || !currentNavigation) {
+          setTopMenu(nextNavigation.topMenu);
+          setView(nextNavigation.view);
         }
 
         setExpandedTopMenu(null);
@@ -93,6 +128,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
 
           window.localStorage.removeItem("refresh_access_token");
           window.localStorage.removeItem("refresh_authenticated_session");
+          window.localStorage.removeItem(refreshNavigationStorageKey);
 
           setToken("");
           setUser(null);
@@ -129,6 +165,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       setUser,
       setView,
       selectedProfileId,
+      view
     ]
   );
 
@@ -138,9 +175,37 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
     }
 
     startTransition(() => {
-      void bootstrap(token);
+      const isPostLogin = postLoginRedirectPendingRef.current;
+
+      void bootstrap(token, { isPostLogin }).finally(() => {
+        if (isPostLogin) {
+          postLoginRedirectPendingRef.current = false;
+        }
+      });
     });
   }, [bootstrap, startTransition, token]);
+
+  useEffect(() => {
+    if (!user || !selectedProfileId) {
+      return;
+    }
+
+    const activeProfile = user.roles.find((role) => role.id === selectedProfileId) ?? null;
+    const navigation = resolveNavigationForView(view, getMenuConfig(activeProfile));
+
+    if (!navigation) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      refreshNavigationStorageKey,
+      serializeRefreshNavigationState({
+        profileId: selectedProfileId,
+        topMenu: navigation.topMenu,
+        view: navigation.view
+      })
+    );
+  }, [selectedProfileId, topMenu, user, view]);
 
   useEffect(() => {
     if (!user?.roles.length) {
@@ -174,12 +239,14 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       window.localStorage.setItem("refresh_access_token", response.accessToken);
       window.localStorage.setItem("refresh_authenticated_session", "true");
 
+      postLoginRedirectPendingRef.current = true;
       setProfileMenuOpen(false);
       setExpandedTopMenu(null);
       setToken(response.accessToken);
       setSessionAlert(null);
       // setSuccess("Login realizado com sucesso.");
     } catch (loginError) {
+      postLoginRedirectPendingRef.current = false;
       setError(loginError instanceof Error ? loginError.message : "Falha ao autenticar.");
     }
   }, [
@@ -196,6 +263,8 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
   const handleLogout = useCallback(() => {
     window.localStorage.removeItem("refresh_access_token");
     window.localStorage.removeItem("refresh_authenticated_session");
+    window.localStorage.removeItem(refreshNavigationStorageKey);
+    postLoginRedirectPendingRef.current = false;
 
     setToken("");
     setUser(null);

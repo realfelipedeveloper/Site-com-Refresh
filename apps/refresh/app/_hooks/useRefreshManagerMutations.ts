@@ -16,7 +16,7 @@ import {
   menuGroups
 } from "../_lib/constants";
 import { apiRequest } from "../_lib/api";
-import { buildDuplicateUserMessage, normalizeIdentityValue } from "../_lib/utils";
+import { buildDuplicateUserMessage, normalizeIdentityValue, refreshNavigationStorageKey } from "../_lib/utils";
 import type { ManagedUser, TopMenuKey, ViewKey } from "../_lib/types";
 import type { useRefreshManagerEditors } from "./useRefreshManagerEditors";
 import type { useRefreshManagerSession } from "./useRefreshManagerSession";
@@ -42,6 +42,7 @@ export function useRefreshManagerMutations(
   function expireSession() {
     window.localStorage.removeItem("refresh_access_token");
     window.localStorage.removeItem("refresh_authenticated_session");
+    window.localStorage.removeItem(refreshNavigationStorageKey);
 
     state.setToken("");
     state.setUser(null);

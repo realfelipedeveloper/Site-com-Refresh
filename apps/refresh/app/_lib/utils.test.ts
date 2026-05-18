@@ -7,9 +7,41 @@ import {
   getDefaultTopMenu,
   getMenuConfig,
   normalizeIdentityValue,
-  resolveApplicationView
+  parseRefreshNavigationState,
+  resolveApplicationView,
+  resolveStoredRefreshNavigation,
+  serializeRefreshNavigationState,
+  shouldRedirectAdminAfterLogin
 } from "./utils";
 import type { LoggedUser } from "./types";
+
+function buildLoggedUser(roleName: string): LoggedUser {
+  return {
+    id: "user-1",
+    name: "Usuario Teste",
+    email: "usuario@example.com",
+    permissions: [],
+    activeRoleId: "role-1",
+    roles: [
+      {
+        id: "role-1",
+        name: roleName,
+        description: null,
+        functionName: roleName,
+        status: "Ativo",
+        permissions: roleName === "Administrador" ? ["users.read", "roles.read"] : ["contents.read"],
+        menuAccesses:
+          roleName === "Administrador"
+            ? [
+                { topMenu: "administration", viewKey: "users" },
+                { topMenu: "administration", viewKey: "groups" }
+              ]
+            : [{ topMenu: "content", viewKey: "content-list" }],
+        appAccesses: []
+      }
+    ]
+  };
+}
 
 describe("refresh utils", () => {
   it("normalizes identity values for duplicate checks", () => {
@@ -127,5 +159,82 @@ describe("refresh utils", () => {
       topMenu: "administration",
       view: "users"
     });
+  });
+
+  it("redirects administrators only in the post-login context", () => {
+    expect(
+      shouldRedirectAdminAfterLogin({
+        isAuthenticated: true,
+        isLoadingSession: false,
+        isPostLogin: true,
+        user: buildLoggedUser("Administrador")
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRedirectAdminAfterLogin({
+        isAuthenticated: true,
+        isLoadingSession: false,
+        isPostLogin: false,
+        user: buildLoggedUser("Administrador")
+      })
+    ).toBe(false);
+  });
+
+  it("does not redirect while loading, without a user, for common users or when already on users", () => {
+    expect(
+      shouldRedirectAdminAfterLogin({
+        isAuthenticated: false,
+        isLoadingSession: true,
+        isPostLogin: true,
+        user: null
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRedirectAdminAfterLogin({
+        isAuthenticated: true,
+        isLoadingSession: false,
+        isPostLogin: true,
+        user: null
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRedirectAdminAfterLogin({
+        isAuthenticated: true,
+        isLoadingSession: false,
+        isPostLogin: true,
+        user: buildLoggedUser("Editor")
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRedirectAdminAfterLogin({
+        isAuthenticated: true,
+        isLoadingSession: false,
+        isPostLogin: true,
+        user: buildLoggedUser("Administrador"),
+        currentView: "users"
+      })
+    ).toBe(false);
+  });
+
+  it("restores only valid navigation for the active profile", () => {
+    const role = buildLoggedUser("Administrador").roles[0];
+    const menuConfig = getMenuConfig(role);
+    const storedNavigation = {
+      profileId: "role-1",
+      topMenu: "administration",
+      view: "groups"
+    } as const;
+
+    expect(parseRefreshNavigationState(serializeRefreshNavigationState(storedNavigation))).toEqual(storedNavigation);
+    expect(resolveStoredRefreshNavigation(storedNavigation, "role-1", menuConfig)).toEqual({
+      topMenu: "administration",
+      view: "groups"
+    });
+    expect(resolveStoredRefreshNavigation(storedNavigation, "role-other", menuConfig)).toBeNull();
+    expect(parseRefreshNavigationState("{invalid")).toBeNull();
   });
 });
