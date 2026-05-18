@@ -16,8 +16,8 @@ x-app-env: &a1
   CORS_ORIGINS: ${CORS_ORIGINS}
   SMTP_HOST: ${SMTP_HOST}
   SMTP_PORT: ${SMTP_PORT:-587}
-  SMTP_USER: ${SMTP_USER}
-  SMTP_PASSWORD: ${SMTP_PASSWORD}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_SECURE: ${SMTP_SECURE:-false}
   SMTP_FROM: ${SMTP_FROM}
   PASSWORD_RESET_TOKEN_TTL_MINUTES: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}
@@ -119,10 +119,10 @@ services:
 volumes:
   mysql_prod_data:
     external: true
-    name: ${MYSQL_DATA_VOLUME:?Set MYSQL_DATA_VOLUME to the existing production MySQL volume name before deploying}
+    name: ${MYSQL_DATA_VOLUME:-portal-abbatech-refresh-g4ud9u_mysql_prod_data}
   minio_prod_data:
     external: true
-    name: ${MINIO_DATA_VOLUME:?Set MINIO_DATA_VOLUME to the existing production MinIO volume name before deploying}
+    name: ${MINIO_DATA_VOLUME:-portal-abbatech-refresh-g4ud9u_minio_prod_data}
 networks:
   dokploy-network:
     external: true

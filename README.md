@@ -61,7 +61,7 @@ Por padrão, o dev usa Mailpit para capturar e-mails em `http://localhost:8025`.
 `local-prod` e `production` também usam dados persistentes obrigatórios. O Compose não deve criar volumes de banco automaticamente nesses ambientes.
 
 - `docker-compose.local-prod.yml` usa volumes externos fixos: `refresh-local-prod_mysql_localprod_data` e `refresh-local-prod_minio_localprod_data`.
-- `docker-compose.prod.yml` exige `MYSQL_DATA_VOLUME` e `MINIO_DATA_VOLUME` apontando para os volumes reais existentes do servidor.
+- `docker-compose.prod.yml` usa volumes externos fixos do app no Dokploy: `portal-abbatech-refresh-g4ud9u_mysql_prod_data` e `portal-abbatech-refresh-g4ud9u_minio_prod_data`. `MYSQL_DATA_VOLUME` e `MINIO_DATA_VOLUME` continuam disponíveis apenas como override manual, se o nome real do volume for diferente.
 - A API executa `scripts/guard-database-bootstrap.mjs` antes de `prisma migrate deploy` e seed. Se o banco não tiver `_prisma_migrations` ou estiver sem usuários, o start é bloqueado.
 - Para uma primeira instalação realmente intencional, defina `ALLOW_EMPTY_DATABASE_BOOTSTRAP=true` somente durante esse bootstrap inicial, com backup/restore ou criação de dados planejada. Depois volte para `false`.
 
