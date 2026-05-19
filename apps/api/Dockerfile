@@ -13,6 +13,7 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 COPY scripts ./scripts
 
+RUN npm run prisma:generate -w @abbatech/api
 RUN npm run build -w @abbatech/api
 
 FROM node:20-slim AS runner
@@ -26,4 +27,4 @@ COPY --from=base /app /app
 
 EXPOSE 3333
 
-CMD ["sh", "-c", "node scripts/guard-production-config.mjs && npm run prisma:generate -w @abbatech/api && node scripts/guard-database-bootstrap.mjs && npm run prisma:migrate -w @abbatech/api && npm run prisma:seed -w @abbatech/api && node apps/api/dist/src/main.js"]
+CMD ["sh", "-c", "node scripts/guard-production-config.mjs && npm run prisma:generate -w @abbatech/api && node scripts/guard-database-preflight.mjs && node scripts/guard-database-bootstrap.mjs && npm run prisma:migrate -w @abbatech/api && npm run prisma:status -w @abbatech/api && node scripts/guard-database-identity.mjs && npm run prisma:seed -w @abbatech/api && node scripts/guard-domain-data-integrity.mjs && node apps/api/dist/src/main.js"]

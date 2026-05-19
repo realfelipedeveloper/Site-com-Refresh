@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AuthService,
+  PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
   PASSWORD_RESET_GENERIC_MESSAGE,
   PASSWORD_RESET_INVALID_LINK_MESSAGE,
   PASSWORD_RESET_SUCCESS_MESSAGE,
@@ -56,19 +57,26 @@ function createAuthService(overrides?: {
   };
 
   const mailService = {
+    assertPasswordResetTransportReady: vi.fn().mockResolvedValue(undefined),
     sendPasswordResetInstructions: vi.fn().mockResolvedValue(undefined)
   };
 
-  const jwtService = {
-    signAsync: vi.fn().mockResolvedValue("jwt-token")
+  const authSessionService = {
+    createCsrfToken: vi.fn().mockReturnValue("csrf-token"),
+    createSession: vi.fn().mockResolvedValue({
+      csrfToken: "csrf-token",
+      session: { id: "session-1" },
+      token: "session-token"
+    }),
+    updateSessionRole: vi.fn().mockResolvedValue(undefined)
   };
 
   return {
+    authSessionService,
     configService,
-    jwtService,
     mailService,
     prisma,
-    service: new AuthService(configService as never, mailService as never, prisma as never, jwtService as never),
+    service: new AuthService(configService as never, mailService as never, prisma as never, authSessionService as never),
     transaction
   };
 }
@@ -93,6 +101,36 @@ describe("AuthService password reset", () => {
       message: PASSWORD_RESET_GENERIC_MESSAGE
     });
 
+    expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
+  });
+
+  it("checks SMTP before user lookup when password reset delivery is required", async () => {
+    const { mailService, prisma, service } = createAuthService({
+      config: {
+        REQUIRE_SMTP_FOR_PASSWORD_RESET: "true"
+      }
+    });
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(service.forgotPassword("missing@example.com")).resolves.toEqual({
+      message: PASSWORD_RESET_GENERIC_MESSAGE
+    });
+
+    expect(mailService.assertPasswordResetTransportReady).toHaveBeenCalledTimes(1);
+    expect(prisma.user.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails all password reset requests before user lookup when required SMTP is unavailable", async () => {
+    const { mailService, prisma, service } = createAuthService({
+      config: {
+        REQUIRE_SMTP_FOR_PASSWORD_RESET: "true"
+      }
+    });
+    mailService.assertPasswordResetTransportReady.mockRejectedValue(new Error("SMTP offline"));
+
+    await expect(service.forgotPassword("admin@example.com")).rejects.toThrow(PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE);
+
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
     expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
   });
 

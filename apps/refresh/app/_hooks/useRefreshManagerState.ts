@@ -52,6 +52,7 @@ export function useRefreshManagerState() {
     title: string;
     message: string;
   } | null>(null);
+  const [isSessionInitializing, setIsSessionInitializing] = useState(true);
   const [user, setUser] = useState<LoggedUser | null>(null);
   const [sections, setSections] = useState<Section[]>([]);
   const [contents, setContents] = useState<Content[]>([]);
@@ -115,6 +116,8 @@ export function useRefreshManagerState() {
     setSuccess,
     sessionAlert,
     setSessionAlert,
+    isSessionInitializing,
+    setIsSessionInitializing,
     user,
     setUser,
     sections,

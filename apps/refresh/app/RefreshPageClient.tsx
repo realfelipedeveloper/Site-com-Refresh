@@ -13,7 +13,20 @@ type RefreshPageClientProps = {
 };
 
 export default function RefreshPageClient({ recoveryModalMode = null, resetToken }: RefreshPageClientProps) {
-  const manager = useRefreshManager();
+  const manager = useRefreshManager({
+    shouldBootstrapSession: !recoveryModalMode
+  });
+
+  if (!recoveryModalMode && manager.isSessionInitializing) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#edf3fb] px-6 text-[#16324f]">
+        <div className="refresh-session-fallback border-l-4 border-[#1f6feb] bg-white px-5 py-4 shadow-[0_14px_34px_rgba(15,33,57,0.08)]">
+          <p className="text-[12px] font-bold uppercase tracking-[0.16em] text-[#1f6feb]">Refresh</p>
+          <p className="mt-2 text-[18px] font-extrabold text-[#10233d]">Carregando sessão...</p>
+        </div>
+      </main>
+    );
+  }
 
   if (recoveryModalMode || !manager.token || !manager.user) {
     return (

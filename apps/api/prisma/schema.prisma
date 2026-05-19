@@ -47,6 +47,27 @@ model User {
   revisions           ContentRevision[]
   auditLogs           AuditLog[]
   passwordResetTokens PasswordResetToken[]
+  authSessions        AuthSession[]
+}
+
+model AuthSession {
+  id                String    @id @default(cuid())
+  userId            String
+  roleId            String?
+  tokenHash         String    @unique
+  userAgent         String?   @db.Text
+  ipAddress         String?
+  createdAt         DateTime  @default(now())
+  lastSeenAt        DateTime  @default(now())
+  idleExpiresAt     DateTime
+  absoluteExpiresAt DateTime
+  revokedAt         DateTime?
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([idleExpiresAt])
+  @@index([absoluteExpiresAt])
+  @@index([revokedAt])
 }
 
 model PasswordResetToken {
@@ -199,6 +220,14 @@ model SystemEmail {
   value       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Template {

@@ -3,11 +3,16 @@
 import { FormEvent, useCallback, useEffect, useRef } from "react";
 
 import { emptyManagementBootstrap } from "../_lib/constants";
-import { apiRequest, safeApiRequest } from "../_lib/api";
+import { apiRequest, clearApiCsrfToken, safeApiRequest, setApiCsrfToken } from "../_lib/api";
 import {
+  clearRefreshAuthStorage,
+  clearLegacyRefreshLocalStorage,
+  clearRefreshSessionStorage,
   getDefaultNavigation,
   getMenuConfig,
   parseRefreshNavigationState,
+  refreshAccessTokenStorageKey,
+  refreshAuthenticatedSessionStorageKey,
   refreshNavigationStorageKey,
   resolveNavigationForView,
   resolveStoredRefreshNavigation,
@@ -21,9 +26,27 @@ type RefreshManagerState = ReturnType<typeof useRefreshManagerState>;
 type BootstrapOptions = {
   isPostLogin?: boolean;
 };
+type RefreshManagerSessionOptions = {
+  shouldBootstrapSession: boolean;
+};
+type BootstrapInput = BootstrapOptions | string | undefined;
+type LoginResponse = {
+  csrfToken?: string;
+};
+type SwitchProfileResponse = {
+  csrfToken?: string;
+};
 
-export function useRefreshManagerSession(state: RefreshManagerState) {
+const authenticatedSessionState = "cookie-session";
+
+export function useRefreshManagerSession(
+  state: RefreshManagerState,
+  options: RefreshManagerSessionOptions = { shouldBootstrapSession: true }
+) {
+  const initialBootstrapStartedRef = useRef(false);
   const postLoginRedirectPendingRef = useRef(false);
+  const selectedProfileIdRef = useRef(state.selectedProfileId);
+  const viewRef = useRef(state.view);
   const {
     identifier,
     password,
@@ -33,6 +56,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
     setError,
     setSessionAlert,
     setExpandedTopMenu,
+    setIsSessionInitializing,
     setManagement,
     setMeta,
     setProfileMenuOpen,
@@ -51,54 +75,54 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
   } = state;
 
   useEffect(() => {
-    const storedToken = window.localStorage.getItem("refresh_access_token");
+    selectedProfileIdRef.current = selectedProfileId;
+  }, [selectedProfileId]);
 
-    if (storedToken) {
-      setToken(storedToken);
-    }
-  }, [setToken]);
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   const bootstrap = useCallback(
-    async (accessToken: string, options: BootstrapOptions = {}) => {
+    async (input?: BootstrapInput, nextOptions: BootstrapOptions = {}) => {
+      const options = typeof input === "string" ? nextOptions : input ?? {};
+
       try {
         setError("");
 
-        const profile = await apiRequest<LoggedUser>("/auth/me", undefined, accessToken);
-        const [nextMeta, nextSections, nextContents, nextManagement] = await Promise.all([
-          safeApiRequest<EditorMeta>("/contents/meta", { templates: [], sections: [], contentTypes: [] }, undefined, accessToken),
-          safeApiRequest<Section[]>("/sections/admin/list", [], undefined, accessToken),
-          safeApiRequest<Content[]>("/contents/admin/list", [], undefined, accessToken),
-          safeApiRequest<ManagementBootstrap>("/management/bootstrap", emptyManagementBootstrap, undefined, accessToken)
-        ]);
+        const profile = await apiRequest<LoggedUser>("/auth/me");
+
+        if (profile.csrfToken) {
+          setApiCsrfToken(profile.csrfToken);
+        }
 
         const firstProfileId = profile.activeRoleId ?? profile.roles[0]?.id ?? "";
         const activeProfile = profile.roles.find((role) => role.id === firstProfileId) ?? profile.roles[0] ?? null;
         const initialMenuConfig = getMenuConfig(activeProfile);
         const defaultNavigation = getDefaultNavigation(activeProfile, initialMenuConfig);
         const restoredNavigation = resolveStoredRefreshNavigation(
-          parseRefreshNavigationState(window.localStorage.getItem(refreshNavigationStorageKey)),
+          parseRefreshNavigationState(window.sessionStorage.getItem(refreshNavigationStorageKey)),
           firstProfileId,
           initialMenuConfig
         );
-        const currentNavigation = resolveNavigationForView(view, initialMenuConfig);
+        const currentView = viewRef.current;
+        const currentSelectedProfileId = selectedProfileIdRef.current;
+        const currentNavigation = resolveNavigationForView(currentView, initialMenuConfig);
         const usersNavigation = resolveNavigationForView("users", initialMenuConfig);
         const shouldApplyAdminPostLoginRedirect = shouldRedirectAdminAfterLogin({
-          isAuthenticated: Boolean(accessToken),
+          isAuthenticated: true,
           isLoadingSession: false,
           isPostLogin: Boolean(options.isPostLogin),
           user: profile,
-          currentView: view
+          currentView
         });
 
         setUser(profile);
+        setToken(authenticatedSessionState);
+        window.sessionStorage.setItem(refreshAuthenticatedSessionStorageKey, "true");
         setSelectedProfileId(firstProfileId);
-        setMeta(nextMeta);
-        setSections(nextSections);
-        setContents(nextContents);
-        setManagement(nextManagement);
         setProfileMenuOpen(false);
 
-        const shouldResetShell = selectedProfileId !== firstProfileId || !selectedProfileId;
+        const shouldResetShell = currentSelectedProfileId !== firstProfileId || !currentSelectedProfileId;
         const nextNavigation = shouldApplyAdminPostLoginRedirect
           ? usersNavigation ?? defaultNavigation
           : shouldResetShell
@@ -111,6 +135,19 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
         }
 
         setExpandedTopMenu(null);
+        setIsSessionInitializing(false);
+
+        const [nextMeta, nextSections, nextContents, nextManagement] = await Promise.all([
+          safeApiRequest<EditorMeta>("/contents/meta", { templates: [], sections: [], contentTypes: [] }),
+          safeApiRequest<Section[]>("/sections/admin/list", []),
+          safeApiRequest<Content[]>("/contents/admin/list", []),
+          safeApiRequest<ManagementBootstrap>("/management/bootstrap", emptyManagementBootstrap)
+        ]);
+
+        setMeta(nextMeta);
+        setSections(nextSections);
+        setContents(nextContents);
+        setManagement(nextManagement);
         setContentForm((current) => ({
           ...current,
           sectionId: current.sectionId || nextMeta.sections[0]?.id || "",
@@ -124,15 +161,16 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
           [401, 403].includes((bootstrapError as Error & { status?: number }).status ?? 0)
         ) {
           const hadAuthenticatedSession =
-            window.localStorage.getItem("refresh_authenticated_session") === "true";
+            window.sessionStorage.getItem(refreshAuthenticatedSessionStorageKey) === "true";
 
-          window.localStorage.removeItem("refresh_access_token");
-          window.localStorage.removeItem("refresh_authenticated_session");
-          window.localStorage.removeItem(refreshNavigationStorageKey);
+          clearRefreshSessionStorage(window.sessionStorage);
+          clearLegacyRefreshLocalStorage(window.localStorage);
+          clearApiCsrfToken();
 
           setToken("");
           setUser(null);
           setError("");
+          setIsSessionInitializing(false);
           setProfileMenuOpen(false);
           setExpandedTopMenu(null);
 
@@ -146,6 +184,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
           return;
         }
 
+        setIsSessionInitializing(false);
         setError(bootstrapError instanceof Error ? bootstrapError.message : "Falha ao carregar o ambiente do manager.");
       }
     },
@@ -155,6 +194,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       setError,
       setSessionAlert,
       setExpandedTopMenu,
+      setIsSessionInitializing,
       setManagement,
       setMeta,
       setProfileMenuOpen,
@@ -163,27 +203,27 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       setToken,
       setTopMenu,
       setUser,
-      setView,
-      selectedProfileId,
-      view
+      setView
     ]
   );
 
   useEffect(() => {
-    if (!token) {
+    if (!options.shouldBootstrapSession) {
+      setIsSessionInitializing(false);
       return;
     }
 
-    startTransition(() => {
-      const isPostLogin = postLoginRedirectPendingRef.current;
+    if (initialBootstrapStartedRef.current) {
+      return;
+    }
 
-      void bootstrap(token, { isPostLogin }).finally(() => {
-        if (isPostLogin) {
-          postLoginRedirectPendingRef.current = false;
-        }
-      });
+    initialBootstrapStartedRef.current = true;
+    clearLegacyRefreshLocalStorage(window.localStorage);
+    window.sessionStorage.removeItem(refreshAccessTokenStorageKey);
+    startTransition(() => {
+      void bootstrap();
     });
-  }, [bootstrap, startTransition, token]);
+  }, [bootstrap, options.shouldBootstrapSession, setIsSessionInitializing, startTransition]);
 
   useEffect(() => {
     if (!user || !selectedProfileId) {
@@ -197,7 +237,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       return;
     }
 
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       refreshNavigationStorageKey,
       serializeRefreshNavigationState({
         profileId: selectedProfileId,
@@ -231,22 +271,26 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
     setSuccess("");
 
     try {
-      const response = await apiRequest<{ accessToken: string }>("/auth/login", {
+      const response = await apiRequest<LoginResponse>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ identifier, password })
       });
 
-      window.localStorage.setItem("refresh_access_token", response.accessToken);
-      window.localStorage.setItem("refresh_authenticated_session", "true");
+      clearLegacyRefreshLocalStorage(window.localStorage);
+      clearRefreshAuthStorage(window.sessionStorage);
+      setApiCsrfToken(response.csrfToken);
 
       postLoginRedirectPendingRef.current = true;
+      setIsSessionInitializing(true);
       setProfileMenuOpen(false);
       setExpandedTopMenu(null);
-      setToken(response.accessToken);
       setSessionAlert(null);
+      await bootstrap({ isPostLogin: true });
+      postLoginRedirectPendingRef.current = false;
       // setSuccess("Login realizado com sucesso.");
     } catch (loginError) {
       postLoginRedirectPendingRef.current = false;
+      setIsSessionInitializing(false);
       setError(loginError instanceof Error ? loginError.message : "Falha ao autenticar.");
     }
   }, [
@@ -254,28 +298,33 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
     password,
     setError,
     setExpandedTopMenu,
+    setIsSessionInitializing,
     setProfileMenuOpen,
     setSessionAlert,
     setSuccess,
-    setToken
+    bootstrap
   ]);
 
   const handleLogout = useCallback(() => {
-    window.localStorage.removeItem("refresh_access_token");
-    window.localStorage.removeItem("refresh_authenticated_session");
-    window.localStorage.removeItem(refreshNavigationStorageKey);
-    postLoginRedirectPendingRef.current = false;
+    void apiRequest("/auth/logout", { method: "POST" }).finally(() => {
+      clearRefreshSessionStorage(window.sessionStorage);
+      clearLegacyRefreshLocalStorage(window.localStorage);
+      clearApiCsrfToken();
+      postLoginRedirectPendingRef.current = false;
 
-    setToken("");
-    setUser(null);
-    setSessionAlert(null);
-    setSuccess("");
-    setError("");
-    setProfileMenuOpen(false);
-    setExpandedTopMenu(null);
+      setToken("");
+      setUser(null);
+      setIsSessionInitializing(false);
+      setSessionAlert(null);
+      setSuccess("");
+      setError("");
+      setProfileMenuOpen(false);
+      setExpandedTopMenu(null);
+    });
   }, [
     setError,
     setExpandedTopMenu,
+    setIsSessionInitializing,
     setProfileMenuOpen,
     setSessionAlert,
     setSuccess,
@@ -294,7 +343,7 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
       const nextMenuConfig = getMenuConfig(nextProfile);
       const nextNavigation = getDefaultNavigation(nextProfile, nextMenuConfig);
 
-      const response = await apiRequest<{ accessToken: string }>(
+      const response = await apiRequest<SwitchProfileResponse>(
         "/auth/switch-profile",
         {
           method: "POST",
@@ -303,8 +352,9 @@ export function useRefreshManagerSession(state: RefreshManagerState) {
         token
       );
 
-      window.localStorage.setItem("refresh_access_token", response.accessToken);
-      setToken(response.accessToken);
+      clearLegacyRefreshLocalStorage(window.localStorage);
+      setApiCsrfToken(response.csrfToken);
+      setToken(authenticatedSessionState);
       setSelectedProfileId(profileId);
       setTopMenu(nextNavigation.topMenu);
       setView(nextNavigation.view);

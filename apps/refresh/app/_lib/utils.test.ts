@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clearRefreshAuthStorage,
+  clearLegacyRefreshLocalStorage,
+  clearRefreshSessionStorage,
   compareRecordNumbersDesc,
   displayRecordCode,
   getDefaultNavigation,
@@ -8,6 +11,9 @@ import {
   getMenuConfig,
   normalizeIdentityValue,
   parseRefreshNavigationState,
+  refreshAccessTokenStorageKey,
+  refreshAuthenticatedSessionStorageKey,
+  refreshNavigationStorageKey,
   resolveApplicationView,
   resolveStoredRefreshNavigation,
   serializeRefreshNavigationState,
@@ -236,5 +242,46 @@ describe("refresh utils", () => {
     });
     expect(resolveStoredRefreshNavigation(storedNavigation, "role-other", menuConfig)).toBeNull();
     expect(parseRefreshNavigationState("{invalid")).toBeNull();
+  });
+
+  it("clears session and legacy persistent storage keys used by Refresh auth", () => {
+    const removedFromSession: string[] = [];
+    const removedFromLocal: string[] = [];
+    const sessionStorage = {
+      removeItem: (key: string) => {
+        removedFromSession.push(key);
+      }
+    } as unknown as Storage;
+    const localStorage = {
+      removeItem: (key: string) => {
+        removedFromLocal.push(key);
+      }
+    } as unknown as Storage;
+
+    clearRefreshSessionStorage(sessionStorage);
+    clearLegacyRefreshLocalStorage(localStorage);
+
+    const expectedKeys = [
+      refreshAccessTokenStorageKey,
+      refreshAuthenticatedSessionStorageKey,
+      refreshNavigationStorageKey
+    ];
+
+    expect(removedFromSession).toEqual(expectedKeys);
+    expect(removedFromLocal).toEqual(expectedKeys);
+  });
+
+  it("clears auth storage without removing the restored navigation state", () => {
+    const removedKeys: string[] = [];
+    const storage = {
+      removeItem: (key: string) => {
+        removedKeys.push(key);
+      }
+    } as unknown as Storage;
+
+    clearRefreshAuthStorage(storage);
+
+    expect(removedKeys).toEqual([refreshAccessTokenStorageKey, refreshAuthenticatedSessionStorageKey]);
+    expect(removedKeys).not.toContain(refreshNavigationStorageKey);
   });
 });

@@ -47,22 +47,51 @@ services:
     container_name: abbatech-api
     command: >
       sh -c "npm run prisma:generate -w @abbatech/api
+      && node scripts/guard-database-preflight.mjs
       && npm run prisma:migrate -w @abbatech/api
+      && npm run prisma:status -w @abbatech/api
+      && node scripts/guard-database-identity.mjs
       && npm run prisma:seed -w @abbatech/api
+      && node scripts/guard-domain-data-integrity.mjs
       && npm run dev -w @abbatech/api"
     env_file:
       - .env
     environment:
+      APP_ENV: development
+      EXPECTED_DATABASE_ENVIRONMENT: development
+      EXPECTED_DATABASE_NAME: refresh
+      ALLOW_DATABASE_IDENTITY_ADOPTION: "true"
+      ALLOW_NONSTRICT_MIGRATION_HISTORY: "true"
+      CHECK_DATABASE_DDL_PERMISSIONS: "true"
+      MYSQL_REQUIRED_MAJOR: "8"
+      DB_CONNECT_RETRIES: "30"
+      DB_CONNECT_RETRY_DELAY_MS: "2000"
       DATABASE_URL: mysql://refresh:refresh@mysql:3306/refresh
       S3_ENDPOINT: http://minio:9000
+      NEXT_PUBLIC_APP_URL: http://localhost:3100
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:3101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:3333/api/v1
+      INTERNAL_API_URL: http://api:3333/api/v1
+      CORS_ORIGINS: http://localhost:3100,http://localhost:3101
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAME_SITE: lax
+      AUTH_SESSION_IDLE_TTL_MINUTES: "30"
+      AUTH_SESSION_ABSOLUTE_TTL_HOURS: "8"
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_FROM: ${SMTP_FROM:-no-reply@abbatech.local}
+      SMTP_REQUIRE_AUTH: ${SMTP_REQUIRE_AUTH:-}
+      REQUIRE_SMTP_FOR_PASSWORD_RESET: ${REQUIRE_SMTP_FOR_PASSWORD_RESET:-true}
     ports:
       - "3333:3333"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3333/api/v1/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     volumes:
       - .:/app
       - node_modules:/app/node_modules
@@ -84,18 +113,27 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: development
+      NEXT_PUBLIC_APP_URL: http://localhost:3100
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:3101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:3333/api/v1
       INTERNAL_API_URL: http://api:3333/api/v1
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     ports:
       - "3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3100/abbatech/portal').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     volumes:
       - .:/app
       - node_modules:/app/node_modules
       - portal_next:/app/apps/portal/.next
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
 
   refresh:
     build:
@@ -106,18 +144,55 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: development
+      NEXT_PUBLIC_APP_URL: http://localhost:3100
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:3101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:3333/api/v1
       INTERNAL_API_URL: http://api:3333/api/v1
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     ports:
       - "3101:3101"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3101/abbatech/refresh').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     volumes:
       - .:/app
       - node_modules:/app/node_modules
       - refresh_next:/app/apps/refresh/.next
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    profiles:
+      - test
+    command: >
+      sh -c "npm ci
+      && npm run prisma:generate -w @abbatech/api
+      && npm run test"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: test
+      NODE_ENV: test
+      CI: "true"
+      DATABASE_URL: mysql://refresh:refresh@mysql:3306/refresh
+      NEXT_PUBLIC_APP_URL: http://localhost:3100/abbatech/portal
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:3101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:3333/api/v1
+      INTERNAL_API_URL: http://api:3333/api/v1
+    volumes:
+      - .:/app
+      - test_node_modules:/app/node_modules
+      - test_api_dist:/app/apps/api/dist
+      - test_portal_next:/app/apps/portal/.next
+      - test_refresh_next:/app/apps/refresh/.next
 
 volumes:
   mysql_data:
@@ -130,3 +205,7 @@ volumes:
   api_dist:
   portal_next:
   refresh_next:
+  test_node_modules:
+  test_api_dist:
+  test_portal_next:
+  test_refresh_next:

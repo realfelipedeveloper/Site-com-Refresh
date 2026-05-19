@@ -1,31 +1,23 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
-import { JwtService } from "@nestjs/jwt";
 import type { Request } from "express";
 import type { AuthenticatedUser } from "./auth.types";
+import { AuthSessionService } from "./auth-session.service";
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(private readonly authSessionService: AuthSessionService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request & { user?: AuthenticatedUser }>();
-    const header = request.headers.authorization;
+    const sessionToken = this.authSessionService.getSessionTokenFromRequest(request);
 
-    if (!header || !header.startsWith("Bearer ")) {
-      throw new UnauthorizedException("Token de acesso ausente.");
-    }
-
-    const token = header.slice("Bearer ".length).trim();
-
-    try {
-      const payload = await this.jwtService.verifyAsync<AuthenticatedUser>(token, {
-        secret: process.env.JWT_ACCESS_SECRET
-      });
-
-      request.user = payload;
+    if (sessionToken) {
+      const sessionUser = await this.authSessionService.validateSessionToken(sessionToken);
+      this.authSessionService.assertValidCsrfToken(request, sessionUser.sessionId);
+      request.user = sessionUser;
       return true;
-    } catch {
-      throw new UnauthorizedException("Token de acesso invalido.");
     }
+
+    throw new UnauthorizedException("Sessão ausente.");
   }
 }

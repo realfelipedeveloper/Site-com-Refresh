@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule, ConfigService } from "@nestjs/config";
-import { JwtModule } from "@nestjs/jwt";
+import { ConfigModule } from "@nestjs/config";
 import { Reflector } from "@nestjs/core";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
@@ -8,20 +7,14 @@ import { PrismaService } from "../../infra/prisma.service";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 import { PermissionsGuard } from "./permissions.guard";
 import { PasswordResetMailService } from "./password-reset-mail.service";
+import { AuthSessionService } from "./auth-session.service";
 
 @Module({
   imports: [
-    ConfigModule,
-    JwtModule.registerAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>("JWT_ACCESS_SECRET"),
-        signOptions: { expiresIn: configService.get<string>("JWT_ACCESS_EXPIRES_IN") ?? "8h" }
-      })
-    })
+    ConfigModule
   ],
   controllers: [AuthController],
-  providers: [AuthService, PasswordResetMailService, PrismaService, JwtAuthGuard, PermissionsGuard, Reflector],
-  exports: [AuthService, JwtAuthGuard, PermissionsGuard, JwtModule]
+  providers: [AuthService, AuthSessionService, PasswordResetMailService, PrismaService, JwtAuthGuard, PermissionsGuard, Reflector],
+  exports: [AuthService, AuthSessionService, JwtAuthGuard, PermissionsGuard]
 })
 export class AuthModule {}
