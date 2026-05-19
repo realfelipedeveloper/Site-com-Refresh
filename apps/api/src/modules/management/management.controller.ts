@@ -137,17 +137,11 @@ export class ManagementController {
   ) {
     const imageUrl = file
       ? await this.uploadService.saveUserImage(file, body.username)
-      : undefined;    
-    if (imageUrl == null) {
-      return {
-        success: false,
-        message: "Erro ao fazer upload da imagem"
-      };
-    }
+      : undefined;
 
     return this.managementService.createUser({
       ...body,
-      picture: imageUrl
+      ...(imageUrl ? { picture: imageUrl } : {})
     });
   }
 

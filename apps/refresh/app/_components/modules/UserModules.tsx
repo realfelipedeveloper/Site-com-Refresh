@@ -5,9 +5,20 @@ import { AdminModal } from "../AdminModal";
 import { emptyUserForm } from "../../_lib/constants";
 import { displayRecordCode, isDeletedUser, toggleItem, resolveUserPictureUrl } from "../../_lib/utils";
 import type { RefreshManager } from "./moduleTypes";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ComponentType } from "react";
 import { ImagePlus } from "lucide-react";
-import Cropper from "react-easy-crop";
+import dynamic from "next/dynamic";
+import type { CropperProps } from "react-easy-crop";
+
+type LazyCropperProps = Partial<CropperProps>;
+
+const Cropper = dynamic<LazyCropperProps>(
+  () => import("react-easy-crop").then((module) => module.default as ComponentType<LazyCropperProps>),
+  {
+    loading: () => <div className="h-full w-full bg-black" aria-hidden="true" />,
+    ssr: false
+  }
+);
 
 export function UserModules({ manager }: { manager: RefreshManager }) {
   const {

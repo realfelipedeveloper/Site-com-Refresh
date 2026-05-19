@@ -93,8 +93,7 @@ handoff-status.md
 *.secret.md
 
 # Local/project docs not versioned in this repository
-docs/
-docs/**
+docs/*
 
 # Local database backups
 backups/

@@ -16,8 +16,24 @@ export class PasswordResetMailService {
 
   constructor(private readonly configService: ConfigService) {}
 
+  async assertPasswordResetTransportReady() {
+    const smtpHost = this.getSmtpHost();
+
+    if (!smtpHost) {
+      throw new Error("SMTP_HOST nao configurado para recuperacao de senha.");
+    }
+
+    const transporter = nodemailer.createTransport(this.getTransportOptions(smtpHost));
+
+    try {
+      await transporter.verify();
+    } finally {
+      transporter.close();
+    }
+  }
+
   async sendPasswordResetInstructions(payload: PasswordResetMailPayload) {
-    const smtpHost = this.configService.get<string>("SMTP_HOST")?.trim();
+    const smtpHost = this.getSmtpHost();
 
     if (!smtpHost) {
       this.logger.warn("SMTP_HOST nao configurado. Instrucoes de recuperacao nao foram enviadas.");
@@ -27,17 +43,21 @@ export class PasswordResetMailService {
     const transporter = nodemailer.createTransport(this.getTransportOptions(smtpHost));
     const from = this.configService.get<string>("SMTP_FROM")?.trim() || "no-reply@abbatech.local";
 
-    await transporter.sendMail({
-      from,
-      to: payload.to,
-      subject: "Recuperação de acesso - Refresh",
-      text: this.buildTextBody(payload),
-      html: this.buildHtmlBody(payload)
-    });
+    try {
+      await transporter.sendMail({
+        from,
+        to: payload.to,
+        subject: "Recuperação de acesso - Refresh",
+        text: this.buildTextBody(payload),
+        html: this.buildHtmlBody(payload)
+      });
+    } finally {
+      transporter.close();
+    }
   }
 
   private getTransportOptions(host: string): SMTPTransport.Options {
-    const port = Number(this.configService.get<string>("SMTP_PORT") ?? 587);
+    const port = Number(this.configService.get<string>("SMTP_PORT") ?? (host === "mailpit" ? 1025 : 587));
     const smtpUser = this.configService.get<string>("SMTP_USER")?.trim();
     const smtpPassword = this.configService.get<string>("SMTP_PASSWORD") ?? "";
     const configuredSecure = this.configService.get<string>("SMTP_SECURE")?.trim().toLowerCase();
@@ -47,8 +67,33 @@ export class PasswordResetMailService {
       host,
       port,
       secure,
-      ...(smtpUser ? { auth: { user: smtpUser, pass: smtpPassword } } : {})
+      ...(this.shouldUseAuth(host) && smtpUser ? { auth: { user: smtpUser, pass: smtpPassword } } : {})
     };
+  }
+
+  private getSmtpHost() {
+    const configuredHost = this.configService.get<string>("SMTP_HOST")?.trim();
+
+    if (configuredHost) {
+      return configuredHost;
+    }
+
+    const appEnv = this.configService.get<string>("APP_ENV")?.trim().toLowerCase();
+    if (appEnv === "development" || appEnv === "local-prod") {
+      return "mailpit";
+    }
+
+    return undefined;
+  }
+
+  private shouldUseAuth(host: string) {
+    const configuredValue = this.configService.get<string>("SMTP_REQUIRE_AUTH")?.trim().toLowerCase();
+
+    if (configuredValue) {
+      return configuredValue === "true";
+    }
+
+    return host !== "mailpit";
   }
 
   private buildTextBody(payload: PasswordResetMailPayload) {

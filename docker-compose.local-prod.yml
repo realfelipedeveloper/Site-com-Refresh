@@ -14,6 +14,11 @@ services:
       - "3308:3306"
     volumes:
       - mysql_localprod_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u refresh -prefresh --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   minio:
     image: minio/minio:latest
@@ -46,52 +51,128 @@ services:
     env_file:
       - .env.local-prod
     environment:
+      APP_ENV: local-prod
+      NODE_ENV: production
+      EXPECTED_DATABASE_ENVIRONMENT: local-prod
+      EXPECTED_DATABASE_NAME: refresh
+      ALLOW_DATABASE_IDENTITY_ADOPTION: ${ALLOW_DATABASE_IDENTITY_ADOPTION:-false}
+      ALLOW_NONSTRICT_MIGRATION_HISTORY: "false"
+      CHECK_DATABASE_DDL_PERMISSIONS: "true"
+      MYSQL_REQUIRED_MAJOR: "8"
+      DB_CONNECT_RETRIES: "30"
+      DB_CONNECT_RETRY_DELAY_MS: "2000"
+      NEXT_PUBLIC_APP_URL: http://localhost:4100
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:4101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:4333/api/v1
+      INTERNAL_API_URL: http://api:3333/api/v1
+      CORS_ORIGINS: http://localhost:4100,http://localhost:4101
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAME_SITE: lax
+      AUTH_SESSION_IDLE_TTL_MINUTES: "30"
+      AUTH_SESSION_ABSOLUTE_TTL_HOURS: "8"
+      REQUIRE_SMTP_FOR_PASSWORD_RESET: "true"
       ALLOW_EMPTY_DATABASE_BOOTSTRAP: ${ALLOW_EMPTY_DATABASE_BOOTSTRAP:-false}
       REQUIRE_DATABASE_DATA: ${REQUIRE_DATABASE_DATA:-true}
     ports:
       - "4333:3333"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3333/api/v1/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     depends_on:
-      - mysql
-      - minio
-      - mailpit
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      mailpit:
+        condition: service_started
 
   portal:
     build:
       context: .
       dockerfile: apps/portal/Dockerfile
       args:
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-        NEXT_PUBLIC_REFRESH_URL: ${NEXT_PUBLIC_REFRESH_URL}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: http://localhost:4100
+        NEXT_PUBLIC_REFRESH_URL: http://localhost:4101/abbatech/refresh
+        NEXT_PUBLIC_API_URL: http://localhost:4333/api/v1
     container_name: abbatech-portal-localprod
     restart: unless-stopped
     env_file:
       - .env.local-prod
     environment:
+      APP_ENV: local-prod
+      NEXT_PUBLIC_APP_URL: http://localhost:4100
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:4101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:4333/api/v1
       INTERNAL_API_URL: http://api:3333/api/v1
     ports:
       - "4100:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/abbatech/portal').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   refresh:
     build:
       context: .
       dockerfile: apps/refresh/Dockerfile
       args:
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-        NEXT_PUBLIC_REFRESH_URL: ${NEXT_PUBLIC_REFRESH_URL}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: http://localhost:4100
+        NEXT_PUBLIC_REFRESH_URL: http://localhost:4101/abbatech/refresh
+        NEXT_PUBLIC_API_URL: http://localhost:4333/api/v1
     container_name: abbatech-refresh-localprod
     restart: unless-stopped
     env_file:
       - .env.local-prod
     environment:
+      APP_ENV: local-prod
+      NEXT_PUBLIC_APP_URL: http://localhost:4100
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:4101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:4333/api/v1
       INTERNAL_API_URL: http://api:3333/api/v1
     ports:
       - "4101:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/abbatech/refresh').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    profiles:
+      - test
+    command: >
+      sh -c "npm ci
+      && npm run prisma:generate -w @abbatech/api
+      && npm run test"
+    env_file:
+      - .env.local-prod
+    environment:
+      APP_ENV: test
+      NODE_ENV: test
+      CI: "true"
+      DATABASE_URL: mysql://refresh:refresh@mysql:3306/refresh
+      NEXT_PUBLIC_APP_URL: http://localhost:4100/abbatech/portal
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:4101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:4333/api/v1
+      INTERNAL_API_URL: http://api:3333/api/v1
+    volumes:
+      - .:/app
+      - localprod_test_node_modules:/app/node_modules
+      - localprod_test_api_dist:/app/apps/api/dist
+      - localprod_test_portal_next:/app/apps/portal/.next
+      - localprod_test_refresh_next:/app/apps/refresh/.next
 
 volumes:
   mysql_localprod_data:
@@ -100,3 +181,7 @@ volumes:
   minio_localprod_data:
     external: true
     name: refresh-local-prod_minio_localprod_data
+  localprod_test_node_modules:
+  localprod_test_api_dist:
+  localprod_test_portal_next:
+  localprod_test_refresh_next:

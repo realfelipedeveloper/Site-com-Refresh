@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
-import { act, type AnchorHTMLAttributes, type ImgHTMLAttributes } from "react";
+import { StrictMode, act, type AnchorHTMLAttributes, type ImgHTMLAttributes } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiRequest, safeApiRequest } from "./_lib/api";
 import { emptyManagementBootstrap } from "./_lib/constants";
 import {
+  refreshAccessTokenStorageKey,
+  refreshAuthenticatedSessionStorageKey,
   refreshNavigationStorageKey,
   serializeRefreshNavigationState
 } from "./_lib/utils";
@@ -43,7 +45,9 @@ vi.mock("next/link", async () => {
 
 vi.mock("./_lib/api", () => ({
   apiRequest: vi.fn(),
-  safeApiRequest: vi.fn()
+  clearApiCsrfToken: vi.fn(),
+  safeApiRequest: vi.fn(),
+  setApiCsrfToken: vi.fn()
 }));
 
 vi.mock("next/navigation", () => ({
@@ -72,6 +76,7 @@ let container: HTMLDivElement | null = null;
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   apiRequestMock.mockReset();
   safeApiRequestMock.mockReset();
 });
@@ -80,6 +85,7 @@ afterEach(() => {
   unmountRefresh();
   document.body.innerHTML = "";
   window.localStorage.clear();
+  window.sessionStorage.clear();
   vi.clearAllMocks();
 });
 
@@ -88,6 +94,7 @@ describe("RefreshPageClient session integration", () => {
     configureApi({ loginProfile: "admin" });
     const screen = renderRefresh();
 
+    await waitForText(screen, "Login de usuário");
     submitLoginForm(screen);
 
     await waitForText(screen, "Cadastro de Usuários");
@@ -98,13 +105,17 @@ describe("RefreshPageClient session integration", () => {
     configureApi({ loginProfile: "admin" });
     const firstScreen = renderRefresh();
 
+    await waitForText(firstScreen, "Login de usuário");
     submitLoginForm(firstScreen);
     await waitForText(firstScreen, "Cadastro de Usuários");
 
+    const authMeCallsBeforeNavigation = countAuthMeCalls();
     clickButtonByText(firstScreen, "Administração");
     clickButtonByText(firstScreen, "Grupos");
 
     await waitForText(firstScreen, "Cadastro de Grupos");
+    await flushReact();
+    expect(countAuthMeCalls()).toBe(authMeCallsBeforeNavigation);
     await waitForStoredView("groups");
 
     unmountRefresh();
@@ -116,9 +127,28 @@ describe("RefreshPageClient session integration", () => {
   });
 
   it("restaura uma sessao administrativa sem reaplicar o redirecionamento de Usuarios", async () => {
+    configureApi({ loginProfile: "admin", restoredProfile: "admin" });
+    window.sessionStorage.setItem(refreshAuthenticatedSessionStorageKey, "true");
+    window.sessionStorage.setItem(
+      refreshNavigationStorageKey,
+      serializeRefreshNavigationState({
+        profileId: "role-admin",
+        topMenu: "administration",
+        view: "groups"
+      })
+    );
+
+    const screen = renderRefresh();
+
+    expect(screen.textContent).not.toContain("Login de usuário");
+    await waitForText(screen, "Cadastro de Grupos");
+    expect(screen.textContent).not.toContain("Cadastro de Usuários");
+  });
+
+  it("nao restaura sessao quando o token existe apenas no localStorage legado", async () => {
     configureApi({ loginProfile: "admin" });
-    window.localStorage.setItem("refresh_access_token", "token-admin");
-    window.localStorage.setItem("refresh_authenticated_session", "true");
+    window.localStorage.setItem(refreshAccessTokenStorageKey, "token-admin");
+    window.localStorage.setItem(refreshAuthenticatedSessionStorageKey, "true");
     window.localStorage.setItem(
       refreshNavigationStorageKey,
       serializeRefreshNavigationState({
@@ -130,13 +160,90 @@ describe("RefreshPageClient session integration", () => {
 
     const screen = renderRefresh();
 
-    await waitForText(screen, "Cadastro de Grupos");
-    expect(screen.textContent).not.toContain("Cadastro de Usuários");
+    await flushReact();
+    expect(screen.textContent).toContain("Login de usuário");
+    expect(window.localStorage.getItem(refreshAccessTokenStorageKey)).toBeNull();
+    expect(window.localStorage.getItem(refreshAuthenticatedSessionStorageKey)).toBeNull();
+    expect(window.localStorage.getItem(refreshNavigationStorageKey)).toBeNull();
+    expect(window.sessionStorage.getItem(refreshAccessTokenStorageKey)).toBeNull();
+  });
+
+  it("encerra o loading inicial quando a API falha", async () => {
+    safeApiRequestMock.mockImplementation(async (_path, fallback) => fallback);
+    apiRequestMock.mockImplementation(async (path) => {
+      if (path === "/auth/me") {
+        throw httpError("API indisponível.", 500);
+      }
+
+      return {};
+    });
+
+    const screen = renderRefresh();
+
+    await waitForText(screen, "Login de usuário");
+    expect(screen.textContent).toContain("API indisponível.");
+    expect(screen.textContent).not.toContain("Carregando sessão...");
+  });
+
+  it("nao duplica o bootstrap inicial em Strict Mode", async () => {
+    configureApi({ loginProfile: "admin", restoredProfile: "admin" });
+    window.sessionStorage.setItem(refreshAuthenticatedSessionStorageKey, "true");
+
+    const screen = renderRefresh({ strictMode: true });
+
+    await waitForText(screen, "Cadastro de Usuários");
+    expect(countAuthMeCalls()).toBe(1);
+  });
+
+  it("envia a recuperacao de senha pela UI sem inicializar sessao", async () => {
+    apiRequestMock.mockImplementation(async (path) => {
+      if (path === "/auth/forgot-password") {
+        return { message: "Instruções enviadas." };
+      }
+
+      if (path === "/auth/me") {
+        throw httpError("Sessão ausente.", 401);
+      }
+
+      return {};
+    });
+    safeApiRequestMock.mockImplementation(async (_path, fallback) => fallback);
+
+    renderRefresh({ recoveryModalMode: "forgot-password" });
+
+    await waitForText(document.body, "Recuperar acesso");
+    const emailInput = Array.from(document.body.querySelectorAll("input")).find(
+      (input) => input.getAttribute("inputmode") === "email"
+    );
+    setInputValue(emailInput, "admin@abbatech.local");
+
+    const recoveryForm = Array.from(document.body.querySelectorAll("form")).find((form) =>
+      form.textContent?.includes("Enviar instruções")
+    );
+    if (!recoveryForm) {
+      throw new Error("Recovery form was not found.");
+    }
+
+    act(() => {
+      recoveryForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    await waitForText(document.body, "Instruções enviadas.");
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "/auth/forgot-password",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "admin@abbatech.local" })
+      })
+    );
+    expect(countAuthMeCalls()).toBe(0);
   });
 
   it("nao aplica a regra de Administrador para usuario comum", async () => {
     configureApi({ loginProfile: "editor" });
     const screen = renderRefresh();
+
+    await waitForText(screen, "Login de usuário");
     const [identifierInput, passwordInput] = Array.from(screen.querySelectorAll("input")) as HTMLInputElement[];
 
     setInputValue(identifierInput, "editor@example.test");
@@ -151,11 +258,12 @@ describe("RefreshPageClient session integration", () => {
     configureApi({ loginProfile: "admin", loginFails: true });
     const screen = renderRefresh();
 
+    await waitForText(screen, "Login de usuário");
     submitLoginForm(screen);
 
     await waitForText(screen, "Credenciais invalidas.");
-    expect(window.localStorage.getItem("refresh_access_token")).toBeNull();
-    expect(window.localStorage.getItem(refreshNavigationStorageKey)).toBeNull();
+    expect(window.sessionStorage.getItem(refreshAccessTokenStorageKey)).toBeNull();
+    expect(window.sessionStorage.getItem(refreshNavigationStorageKey)).toBeNull();
   });
 });
 
@@ -186,35 +294,49 @@ function buildUser(
   };
 }
 
+function countAuthMeCalls() {
+  return apiRequestMock.mock.calls.filter(([path]) => path === "/auth/me").length;
+}
+
 function configureApi({
   loginProfile,
-  loginFails = false
+  loginFails = false,
+  restoredProfile = null
 }: {
   loginProfile: "admin" | "editor";
   loginFails?: boolean;
+  restoredProfile?: "admin" | "editor" | null;
 }) {
+  let authenticatedProfile: "admin" | "editor" | null = restoredProfile;
+
   safeApiRequestMock.mockImplementation(async (_path, fallback) => fallback);
-  apiRequestMock.mockImplementation(async (path, _options, token) => {
+  apiRequestMock.mockImplementation(async (path) => {
     if (path === "/auth/login") {
       if (loginFails) {
         throw httpError("Credenciais invalidas.", 401);
       }
 
+      authenticatedProfile = loginProfile;
       return {
-        accessToken: loginProfile === "admin" ? "token-admin" : "token-editor"
+        csrfToken: "csrf-token"
       };
     }
 
     if (path === "/auth/me") {
-      if (token === "token-admin") {
+      if (authenticatedProfile === "admin") {
         return adminUser;
       }
 
-      if (token === "token-editor") {
+      if (authenticatedProfile === "editor") {
         return editorUser;
       }
 
-      throw httpError("Token de acesso invalido.", 401);
+      throw httpError("Sessão ausente.", 401);
+    }
+
+    if (path === "/auth/logout") {
+      authenticatedProfile = null;
+      return { message: "Sessão encerrada." };
     }
 
     if (path === "/management/bootstrap") {
@@ -231,13 +353,23 @@ function httpError(message: string, status: number) {
   return error;
 }
 
-function renderRefresh() {
+function renderRefresh(options: { recoveryModalMode?: "forgot-password"; strictMode?: boolean } = {}) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
 
+  const component = <RefreshPageClient recoveryModalMode={options.recoveryModalMode} />;
+
   act(() => {
-    root?.render(<RefreshPageClient />);
+    root?.render(
+      options.strictMode ? (
+        <StrictMode>
+          {component}
+        </StrictMode>
+      ) : (
+        component
+      )
+    );
   });
 
   return container;
@@ -318,7 +450,7 @@ async function waitForStoredView(view: string) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     await flushReact();
 
-    const storedNavigation = window.localStorage.getItem(refreshNavigationStorageKey);
+    const storedNavigation = window.sessionStorage.getItem(refreshNavigationStorageKey);
     if (storedNavigation && JSON.parse(storedNavigation).view === view) {
       return;
     }

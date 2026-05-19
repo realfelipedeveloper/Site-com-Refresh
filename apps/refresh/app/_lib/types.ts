@@ -41,6 +41,7 @@ export type LoggedUser = {
   cpf?: string | null;
   picture?: string | null;
   permissions: string[];
+  csrfToken?: string;
   activeRoleId?: string | null;
   roles: Array<{
     id: string;

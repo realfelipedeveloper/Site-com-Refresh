@@ -11,7 +11,19 @@ import type {
   ViewKey
 } from "./types";
 
+export const refreshAccessTokenStorageKey = "refresh_access_token";
+export const refreshAuthenticatedSessionStorageKey = "refresh_authenticated_session";
 export const refreshNavigationStorageKey = "refresh_navigation_state";
+
+const refreshAuthStorageKeys = [
+  refreshAccessTokenStorageKey,
+  refreshAuthenticatedSessionStorageKey
+];
+
+const refreshSessionStorageKeys = [
+  ...refreshAuthStorageKeys,
+  refreshNavigationStorageKey
+];
 
 const topMenuKeys: TopMenuKey[] = ["content", "administration", "system", "newsletter"];
 const viewKeys: ViewKey[] = [
@@ -44,6 +56,24 @@ export type AdminPostLoginRedirectInput = {
   user: LoggedUser | null;
   currentView?: ViewKey;
 };
+
+export function clearRefreshSessionStorage(storage: Storage) {
+  for (const key of refreshSessionStorageKeys) {
+    storage.removeItem(key);
+  }
+}
+
+export function clearRefreshAuthStorage(storage: Storage) {
+  for (const key of refreshAuthStorageKeys) {
+    storage.removeItem(key);
+  }
+}
+
+export function clearLegacyRefreshLocalStorage(storage: Storage) {
+  for (const key of refreshSessionStorageKeys) {
+    storage.removeItem(key);
+  }
+}
 
 export function getPermissionLabel(code: string) {
   return permissionLabelMap[code] ?? code.replaceAll(".", " / ");

@@ -1,11 +1,12 @@
-import { BadRequestException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { JwtService } from "@nestjs/jwt";
 import type { Prisma } from "@prisma/client";
 import { hash, verify } from "argon2";
 import { createHash, randomBytes } from "crypto";
 import { PrismaService } from "../../infra/prisma.service";
+import { buildRefreshRouteUrl } from "../../config/environment.utils";
 import type { AuthenticatedUser } from "./auth.types";
+import { AuthSessionService } from "./auth-session.service";
 import { PasswordResetMailService } from "./password-reset-mail.service";
 
 export const PASSWORD_RESET_GENERIC_MESSAGE =
@@ -15,6 +16,9 @@ export const PASSWORD_RESET_SUCCESS_MESSAGE = "Senha redefinida com sucesso.";
 
 export const PASSWORD_RESET_INVALID_LINK_MESSAGE =
   "Este link de recuperação é inválido ou expirou. Solicite uma nova recuperação de acesso.";
+
+export const PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE =
+  "Não foi possível enviar as instruções de recuperação agora. Tente novamente em instantes.";
 
 export function hashPasswordResetToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -32,6 +36,11 @@ export function validatePasswordPolicy(password: string) {
   return null;
 }
 
+type LoginRequestMetadata = {
+  ipAddress?: string;
+  userAgent?: string;
+};
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -40,10 +49,10 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly mailService: PasswordResetMailService,
     private readonly prisma: PrismaService,
-    private readonly jwtService: JwtService
+    private readonly authSessionService: AuthSessionService
   ) {}
 
-  async login(identifier: string, password: string, roleId?: string) {
+  async login(identifier: string, password: string, roleId?: string, metadata: LoginRequestMetadata = {}) {
     const normalizedIdentifier = identifier.trim();
     const normalizedIdentifierLower = normalizedIdentifier.toLowerCase();
 
@@ -104,16 +113,11 @@ export class AuthService {
       }
     });
 
+    const session = await this.authSessionService.createSession(user.id, activeRole?.id ?? null, metadata);
+
     return {
-      accessToken: await this.jwtService.signAsync({
-        sub: user.id,
-        email: user.email,
-        username: user.username,
-        cpf: user.cpf,
-        picture: user.picture,
-        permissions,
-        roleId: activeRole?.id
-      }),
+      csrfToken: session.csrfToken,
+      sessionToken: session.token,
       user: {
         id: user.id,
         name: user.name,
@@ -161,16 +165,12 @@ export class AuthService {
       (permissionEntry: (typeof activeRole.permissions)[number]) => permissionEntry.permission.code
     );
 
+    await this.authSessionService.updateSessionRole(authenticatedUser.sessionId, activeRole.id);
+
     return {
-      accessToken: await this.jwtService.signAsync({
-        sub: user.id,
-        email: user.email,
-        username: user.username,
-        cpf: user.cpf,
-        picture: user.picture,
-        permissions,
-        roleId: activeRole.id
-      })
+      csrfToken: this.authSessionService.createCsrfToken(authenticatedUser.sessionId),
+      permissions,
+      roleId: activeRole.id
     };
   }
 
@@ -219,6 +219,9 @@ export class AuthService {
       isActive: user.isActive,
       lastLoginAt: user.lastLoginAt,
       permissions: authenticatedUser.permissions,
+      csrfToken: authenticatedUser.sessionId
+        ? this.authSessionService.createCsrfToken(authenticatedUser.sessionId)
+        : undefined,
       activeRoleId: authenticatedUser.roleId ?? this.resolveActiveRole(user.roles)?.id ?? null,
       roles: user.roles.map((entry: (typeof user.roles)[number]) => ({
         id: entry.role.id,
@@ -247,6 +250,10 @@ export class AuthService {
   async forgotPassword(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const now = new Date();
+
+    if (this.shouldRequirePasswordResetSmtp()) {
+      await this.assertPasswordResetTransportReady();
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail }
@@ -293,6 +300,10 @@ export class AuthService {
         `Falha ao enviar instrucoes de recuperacao para o usuario ${user.id}.`,
         mailError instanceof Error ? mailError.stack : undefined
       );
+
+      if (this.shouldRequirePasswordResetSmtp()) {
+        throw new ServiceUnavailableException(PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE);
+      }
     }
 
     return { message: PASSWORD_RESET_GENERIC_MESSAGE };
@@ -463,22 +474,23 @@ export class AuthService {
   }
 
   private buildPasswordResetUrl(token: string) {
-    const configuredRefreshUrl =
-      this.configService.get<string>("REFRESH_APP_URL")?.trim() ||
-      this.configService.get<string>("NEXT_PUBLIC_REFRESH_URL")?.trim() ||
-      this.configService.get<string>("APP_URL")?.trim() ||
-      "http://localhost:3101";
-    const url = new URL(configuredRefreshUrl);
-    const normalizedPath = url.pathname.replace(/\/$/, "");
-    const refreshBasePath = "/abbatech/refresh";
+    return buildRefreshRouteUrl(this.configService, "/reset-password", { token });
+  }
 
-    url.pathname = normalizedPath.endsWith(refreshBasePath)
-      ? `${normalizedPath}/reset-password`
-      : `${normalizedPath}${refreshBasePath}/reset-password`;
-    url.search = "";
-    url.searchParams.set("token", token);
+  private shouldRequirePasswordResetSmtp() {
+    return this.configService.get<string>("REQUIRE_SMTP_FOR_PASSWORD_RESET")?.trim().toLowerCase() === "true";
+  }
 
-    return url.toString();
+  private async assertPasswordResetTransportReady() {
+    try {
+      await this.mailService.assertPasswordResetTransportReady();
+    } catch (smtpError) {
+      this.logger.error(
+        "Transporte SMTP de recuperacao de senha indisponivel.",
+        smtpError instanceof Error ? smtpError.stack : undefined
+      );
+      throw new ServiceUnavailableException(PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE);
+    }
   }
 
   private canRecoverPassword(user: { isActive: boolean; status: string }) {

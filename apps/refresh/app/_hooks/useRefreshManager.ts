@@ -7,11 +7,17 @@ import { useRefreshManagerNewsletterMutations } from "./useRefreshManagerNewslet
 import { useRefreshManagerSession } from "./useRefreshManagerSession";
 import { useRefreshManagerState } from "./useRefreshManagerState";
 
-export function useRefreshManager() {
+type UseRefreshManagerOptions = {
+  shouldBootstrapSession?: boolean;
+};
+
+export function useRefreshManager(options: UseRefreshManagerOptions = {}) {
   const state = useRefreshManagerState();
   const derived = useRefreshManagerDerived(state);
   const editors = useRefreshManagerEditors(state);
-  const session = useRefreshManagerSession(state);
+  const session = useRefreshManagerSession(state, {
+    shouldBootstrapSession: options.shouldBootstrapSession ?? true
+  });
   const mutations = useRefreshManagerMutations(state, session, editors);
   const newsletterMutations = useRefreshManagerNewsletterMutations(state, session);
 

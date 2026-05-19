@@ -33,26 +33,29 @@ export type AuthenticatedUserProfile = {
   email: string;
   username?: string | null;
   cpf?: string | null;
+  picture?: string | null;
   permissions: string[];
+  csrfToken?: string;
   activeRoleId?: string | null;
   roles: AuthRole[];
 };
 
 export type LoginResponse = {
-  accessToken: string;
+  csrfToken?: string;
   user: {
     id: EntityId;
     name: string;
     email: string;
     username?: string | null;
     cpf?: string | null;
+    picture?: string | null;
     permissions: string[];
     activeRoleId?: string | null;
   };
 };
 
 export type SwitchProfileResponse = {
-  accessToken: string;
+  csrfToken?: string;
 };
 
 export type ForgotPasswordRequest = {
