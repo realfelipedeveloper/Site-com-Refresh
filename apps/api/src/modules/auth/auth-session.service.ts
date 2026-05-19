@@ -17,6 +17,19 @@ type RequestMetadata = {
   ipAddress?: string;
 };
 
+type SessionRolePermissionEntry = {
+  permission: {
+    code: string;
+  };
+};
+
+type SessionRoleEntry = {
+  role: {
+    id: string;
+    permissions: SessionRolePermissionEntry[];
+  };
+};
+
 @Injectable()
 export class AuthSessionService {
   constructor(
@@ -110,7 +123,8 @@ export class AuthSessionService {
       throw new UnauthorizedException("Sessão inválida ou expirada.");
     }
 
-    const activeRole = session.user.roles.find((entry) => entry.role.id === session.roleId)?.role ?? session.user.roles[0]?.role;
+    const userRoles: SessionRoleEntry[] = session.user.roles;
+    const activeRole = userRoles.find((entry) => entry.role.id === session.roleId)?.role ?? userRoles[0]?.role;
     const permissions = activeRole
       ? activeRole.permissions.map((permissionEntry) => permissionEntry.permission.code)
       : [];
