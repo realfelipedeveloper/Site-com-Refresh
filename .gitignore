@@ -83,6 +83,8 @@ Thumbs.db
 # Test artifacts
 .playwright/
 **/.playwright/
+playwright-report/
+**/playwright-report/
 test-results/
 **/test-results/
 
@@ -94,6 +96,7 @@ handoff-status.md
 
 # Local/project docs not versioned in this repository
 docs/*
+!docs/refresh-automated-test-suite.md
 
 # Local database backups
 backups/

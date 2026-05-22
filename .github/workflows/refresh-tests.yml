@@ -1,13 +1,27 @@
-name: CI
+name: Refresh Automated Tests
 
 on:
-  push:
-    branches: ["main", "master"]
   pull_request:
+    branches:
+      - development
+      - homologation
+      - main
+  push:
+    branches:
+      - "change/**"
+      - "feature/**"
+      - "fix/**"
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+
+    env:
+      CI: "true"
+      NODE_ENV: test
+      APP_ENV: test
+      RUN_E2E: "false"
+      RUN_SMOKE: "false"
 
     steps:
       - name: Checkout
@@ -25,5 +39,5 @@ jobs:
       - name: Generate Prisma Client
         run: npm run db:generate
 
-      - name: Validate
+      - name: Validate Refresh test suite
         run: npm run test:ci

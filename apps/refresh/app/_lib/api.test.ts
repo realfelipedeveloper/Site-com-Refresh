@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiRequest, buildApiRequestUrl, clearApiCsrfToken, setApiCsrfToken } from "./api";
+import { apiRequest, buildApiRequestUrl, clearApiCsrfToken, safeApiRequest, setApiCsrfToken } from "./api";
 
 describe("Refresh API client", () => {
   afterEach(() => {
@@ -53,6 +53,33 @@ describe("Refresh API client", () => {
     expect(buildApiRequestUrl("auth/me", "http://localhost:3333/api/v1/")).toBe(
       "http://localhost:3333/api/v1/auth/me"
     );
+  });
+
+  it("parses API validation errors without leaking the raw response envelope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: ["E-mail invalido.", "Senha obrigatoria."] }), {
+        headers: {
+          "Content-Type": "application/json"
+        },
+        status: 400
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiRequest("/auth/login", { method: "POST", body: "{}" })).rejects.toThrow(
+      "E-mail invalido. Senha obrigatoria."
+    );
+  });
+
+  it("returns safe fallbacks only for expected empty or unauthorized states", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "Sessão ausente." }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "API indisponível." }), { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(safeApiRequest("/management/bootstrap", { users: [] })).resolves.toEqual({ users: [] });
+    await expect(safeApiRequest("/management/bootstrap", { users: [] })).rejects.toThrow("API indisponível.");
   });
 
   it("fails finite requests when the API does not answer", async () => {

@@ -231,3 +231,64 @@ describe("AuthService password reset", () => {
     );
   });
 });
+
+describe("AuthService login security", () => {
+  it("authenticates with an opaque session token without leaking password hashes", async () => {
+    const { authSessionService, prisma, service } = createAuthService();
+    prisma.user.findFirst.mockResolvedValue({
+      id: "user-1",
+      name: "Admin Refresh",
+      email: "admin@example.test",
+      username: "admin",
+      cpf: null,
+      picture: null,
+      passwordHash: "Refresh123!",
+      isActive: true,
+      status: "Ativo",
+      roles: [
+        {
+          role: {
+            id: "role-admin",
+            name: "Administrador",
+            functionName: "Administrador",
+            permissions: [{ permission: { code: "users.read" } }]
+          }
+        }
+      ]
+    });
+
+    const result = await service.login(" ADMIN@example.test ", "Refresh123!", undefined, {
+      ipAddress: "127.0.0.1",
+      userAgent: "Vitest"
+    });
+
+    expect(result.sessionToken).toBe("session-token");
+    expect(result.user).toEqual(
+      expect.objectContaining({
+        activeRoleId: "role-admin",
+        email: "admin@example.test",
+        permissions: ["users.read"]
+      })
+    );
+    expect(result.user).not.toHaveProperty("passwordHash");
+    expect(result.user).not.toHaveProperty("tokenHash");
+    expect(authSessionService.createSession).toHaveBeenCalledWith("user-1", "role-admin", {
+      ipAddress: "127.0.0.1",
+      userAgent: "Vitest"
+    });
+  });
+
+  it("rejects inactive or logically deleted users before creating a session", async () => {
+    const { authSessionService, prisma, service } = createAuthService();
+    prisma.user.findFirst.mockResolvedValue({
+      id: "user-1",
+      passwordHash: "Refresh123!",
+      isActive: false,
+      status: "Excluído",
+      roles: []
+    });
+
+    await expect(service.login("deleted@example.test", "Refresh123!")).rejects.toThrow("Usuario inativo.");
+    expect(authSessionService.createSession).not.toHaveBeenCalled();
+  });
+});
