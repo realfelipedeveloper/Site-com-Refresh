@@ -9,6 +9,11 @@ loadTestEnv({ cwd: rootDir });
 const schemaPath = path.join(rootDir, "apps", "api", "prisma", "schema.prisma");
 const migrationsPath = path.join(rootDir, "apps", "api", "prisma", "migrations");
 const prismaCliPath = path.join(rootDir, "node_modules", "prisma", "build", "index.js");
+const schemaValidationDatabaseUrl =
+  process.env.DATABASE_URL ||
+  process.env.TEST_MIGRATIONS_DATABASE_URL ||
+  process.env.TEST_DATABASE_URL ||
+  "mysql://refresh_test:refresh_test@localhost:3306/refresh_test";
 const errors = [];
 
 function truthy(value) {
@@ -103,7 +108,10 @@ async function main() {
     return;
   }
 
-  const validateCode = await runPrisma(["validate", "--schema", schemaPath]);
+  const validateCode = await runPrisma(["validate", "--schema", schemaPath], {
+    ...process.env,
+    DATABASE_URL: schemaValidationDatabaseUrl
+  });
   if (validateCode !== 0) {
     fail("Prisma schema validation failed.");
     return;
