@@ -4,22 +4,33 @@ import {
   clearRefreshAuthStorage,
   clearLegacyRefreshLocalStorage,
   clearRefreshSessionStorage,
+  buildDuplicateUserMessage,
+  buildSectionTree,
   compareRecordNumbersDesc,
   displayRecordCode,
+  formatContentStatus,
+  formatDate,
+  formatDateTime,
+  formatTime,
+  getBreadcrumbLabel,
+  getBreadcrumbTop,
   getDefaultNavigation,
   getDefaultTopMenu,
   getMenuConfig,
+  getViewTitle,
+  isDeletedUser,
   normalizeIdentityValue,
   parseRefreshNavigationState,
   refreshAccessTokenStorageKey,
   refreshAuthenticatedSessionStorageKey,
   refreshNavigationStorageKey,
+  resolveUserPictureUrl,
   resolveApplicationView,
   resolveStoredRefreshNavigation,
   serializeRefreshNavigationState,
   shouldRedirectAdminAfterLogin
 } from "./utils";
-import type { LoggedUser } from "./types";
+import type { LoggedUser, ManagedUser, Section } from "./types";
 
 function buildLoggedUser(roleName: string): LoggedUser {
   return {
@@ -65,10 +76,63 @@ describe("refresh utils", () => {
     expect(displayRecordCode(42, "clwabc123def")).toBe("42");
   });
 
+  it("formats display helpers without exposing raw empty values", () => {
+    expect(formatDate(null)).toBe("--");
+    expect(formatTime(null)).toBe("--");
+    expect(formatDateTime(null)).toBe("--");
+    expect(formatContentStatus("published")).toBe("Publicado");
+    expect(formatContentStatus("draft")).toBe("Novo");
+    expect(formatContentStatus("archived")).toBe("Arquivado");
+    expect(getBreadcrumbLabel("users")).toBe("Usuários");
+    expect(getBreadcrumbTop("applications")).toBe("Sistema");
+    expect(getViewTitle("statistics")).toBe("Estatísticas");
+  });
+
   it("resolves application views from configured links", () => {
     expect(resolveApplicationView("Conteúdo", "conteudo.php")).toBe("content-list");
     expect(resolveApplicationView("Aplicativos", "aplicativos.php")).toBe("applications");
     expect(resolveApplicationView("Desconhecido", "custom.php")).toBeNull();
+  });
+
+  it("builds section trees and keeps roots ordered by path", () => {
+    const sections: Section[] = [
+      {
+        id: "child",
+        name: "Child",
+        slug: "child",
+        path: "/b/child",
+        parentId: "parent",
+        description: null,
+        isActive: true,
+        visibleInMenu: true,
+        order: 0
+      },
+      {
+        id: "sibling",
+        name: "Sibling",
+        slug: "sibling",
+        path: "/a",
+        parentId: null,
+        description: null,
+        isActive: true,
+        visibleInMenu: true,
+        order: 0
+      },
+      {
+        id: "parent",
+        name: "Parent",
+        slug: "parent",
+        path: "/b",
+        parentId: null,
+        description: null,
+        isActive: true,
+        visibleInMenu: true,
+        order: 0
+      }
+    ];
+
+    expect(buildSectionTree(sections).map((section) => section.id)).toEqual(["sibling", "parent"]);
+    expect(buildSectionTree(sections)[1]?.childrenNodes[0]?.id).toBe("child");
   });
 
   it("returns the default top menu per role kind", () => {
@@ -102,6 +166,19 @@ describe("refresh utils", () => {
 
     expect(getMenuConfig(role).groups.newsletter).toEqual([{ key: "newsletter", label: "Newsletter" }]);
     expect(getMenuConfig(role).groups.content).toEqual([]);
+  });
+
+  it("keeps user-facing duplicate and deletion helpers explicit", () => {
+    const conflictingUser = {
+      email: "maria@example.test",
+      name: "Maria Refresh",
+      status: "Excluído"
+    } as ManagedUser;
+
+    expect(buildDuplicateUserMessage(conflictingUser, "email", "maria@example.test")).toContain(
+      "Registro localizado: Maria Refresh"
+    );
+    expect(isDeletedUser(conflictingUser)).toBe(true);
   });
 
   it("hides menu items when app access is removed", () => {
@@ -283,5 +360,12 @@ describe("refresh utils", () => {
 
     expect(removedKeys).toEqual([refreshAccessTokenStorageKey, refreshAuthenticatedSessionStorageKey]);
     expect(removedKeys).not.toContain(refreshNavigationStorageKey);
+  });
+
+  it("resolves user picture URLs without breaking public media, blobs or subpath assets", () => {
+    expect(resolveUserPictureUrl(null)).toBeNull();
+    expect(resolveUserPictureUrl(" https://cdn.example.test/avatar.png ")).toBe("https://cdn.example.test/avatar.png");
+    expect(resolveUserPictureUrl("blob:http://localhost/avatar")).toBe("blob:http://localhost/avatar");
+    expect(resolveUserPictureUrl("media/users/avatar.png")).toBe("/abbatech/refresh/media/users/avatar.png");
   });
 });

@@ -90,6 +90,55 @@ afterEach(() => {
 });
 
 describe("RefreshPageClient session integration", () => {
+  it("nao exibe alerta de sessao expirada no primeiro acesso sem token", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    apiRequestMock.mockImplementation(async (path) => {
+      if (path === "/auth/me") {
+        throw httpError("Sessão ausente.", 401);
+      }
+
+      return {};
+    });
+    safeApiRequestMock.mockImplementation(async (_path, fallback) => fallback);
+
+    const screen = renderRefresh();
+
+    await waitForText(screen, "Login de usuário");
+    expect(screen.textContent).not.toContain("Sessão expirada");
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it("exibe alerta customizado apenas quando uma sessao autenticada expira de fato", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    window.sessionStorage.setItem(refreshAuthenticatedSessionStorageKey, "true");
+    window.sessionStorage.setItem(refreshAccessTokenStorageKey, "legacy-token");
+    window.sessionStorage.setItem(
+      refreshNavigationStorageKey,
+      serializeRefreshNavigationState({
+        profileId: "role-admin",
+        topMenu: "administration",
+        view: "groups"
+      })
+    );
+    apiRequestMock.mockImplementation(async (path) => {
+      if (path === "/auth/me") {
+        throw httpError("Sessão inválida ou expirada.", 401);
+      }
+
+      return {};
+    });
+    safeApiRequestMock.mockImplementation(async (_path, fallback) => fallback);
+
+    const screen = renderRefresh();
+
+    await waitForText(screen, "Sessão expirada");
+    expect(screen.textContent).toContain("Sua sessão expirou. Faça login novamente para continuar.");
+    expect(window.sessionStorage.getItem(refreshAuthenticatedSessionStorageKey)).toBeNull();
+    expect(window.sessionStorage.getItem(refreshNavigationStorageKey)).toBeNull();
+    expect(window.sessionStorage.getItem(refreshAccessTokenStorageKey)).toBeNull();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
   it("redireciona o Administrador para Usuarios somente apos login bem-sucedido", async () => {
     configureApi({ loginProfile: "admin" });
     const screen = renderRefresh();

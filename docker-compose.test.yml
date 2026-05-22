@@ -1,0 +1,160 @@
+services:
+  mysql-test:
+    image: mysql:8.4
+    container_name: abbatech-mysql-test
+    environment:
+      MYSQL_DATABASE: refresh_test
+      MYSQL_USER: refresh_test
+      MYSQL_PASSWORD: refresh_test
+      MYSQL_ROOT_PASSWORD: root_test
+    ports:
+      - "3308:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u refresh_test -prefresh_test --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-test:
+    image: minio/minio:latest
+    container_name: abbatech-minio-test
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio-test
+      MINIO_ROOT_PASSWORD: minio-test-secret
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+
+  mailpit-test:
+    image: axllent/mailpit:latest
+    container_name: abbatech-mailpit-test
+    ports:
+      - "1026:1025"
+      - "8026:8025"
+
+  api-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: abbatech-api-test
+    command: >
+      sh -c "npm run prisma:generate -w @abbatech/api
+      && npm run prisma:migrate -w @abbatech/api
+      && npm run seed:test -w @abbatech/api
+      && npm run dev -w @abbatech/api"
+    environment:
+      APP_ENV: test
+      NODE_ENV: test
+      CI: "true"
+      EXPECTED_DATABASE_ENVIRONMENT: test
+      EXPECTED_DATABASE_NAME: refresh_test
+      ALLOW_DATABASE_IDENTITY_ADOPTION: "true"
+      ALLOW_EMPTY_DATABASE_BOOTSTRAP: "true"
+      ALLOW_NONSTRICT_MIGRATION_HISTORY: "true"
+      CHECK_DATABASE_DDL_PERMISSIONS: "true"
+      DATABASE_URL: mysql://refresh_test:refresh_test@mysql-test:3306/refresh_test
+      NEXT_PUBLIC_APP_URL: http://localhost:3100/abbatech/portal
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:3101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:3333/api/v1
+      INTERNAL_API_URL: http://api-test:3333/api/v1
+      CORS_ORIGINS: http://localhost:3100,http://localhost:3101
+      JWT_ACCESS_SECRET: test-jwt-access-secret
+      JWT_REFRESH_SECRET: test-jwt-refresh-secret
+      COOKIE_SECRET: test-cookie-secret
+      AUTH_CSRF_SECRET: test-csrf-secret
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAME_SITE: lax
+      AUTH_SESSION_IDLE_TTL_MINUTES: "30"
+      AUTH_SESSION_ABSOLUTE_TTL_HOURS: "8"
+      SMTP_HOST: mailpit-test
+      SMTP_PORT: "1025"
+      SMTP_FROM: no-reply-test@abbatech.local
+      SMTP_REQUIRE_AUTH: "false"
+      REQUIRE_SMTP_FOR_PASSWORD_RESET: "false"
+      PASSWORD_RESET_TOKEN_TTL_MINUTES: "30"
+      S3_ENDPOINT: http://minio-test:9000
+      S3_ACCESS_KEY: minio-test
+      S3_SECRET_KEY: minio-test-secret
+      S3_BUCKET: refresh-test-media
+      ADMIN_EMAIL: admin.test@abbatech.local
+      ADMIN_PASSWORD: Refresh123!
+      ADMIN_USERNAME: admin.test
+      ADMIN_RESET_PASSWORD: "true"
+      TEST_COMMON_EMAIL: editor.test@abbatech.local
+      TEST_COMMON_PASSWORD: Refresh123!
+      TEST_NO_PERMISSION_EMAIL: blocked.test@abbatech.local
+      TEST_NO_PERMISSION_PASSWORD: Refresh123!
+      TEST_DELETED_EMAIL: deleted.test@abbatech.local
+      TEST_DELETED_PASSWORD: Refresh123!
+    ports:
+      - "3333:3333"
+    volumes:
+      - .:/app
+      - test_node_modules:/app/node_modules
+      - test_api_dist:/app/apps/api/dist
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+      minio-test:
+        condition: service_started
+      mailpit-test:
+        condition: service_started
+
+  refresh-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: abbatech-refresh-test
+    command: npm run dev -w @abbatech/refresh
+    environment:
+      APP_ENV: test
+      NODE_ENV: test
+      NEXT_PUBLIC_APP_URL: http://localhost:3100/abbatech/portal
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:3101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:3333/api/v1
+      INTERNAL_API_URL: http://api-test:3333/api/v1
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3101:3101"
+    volumes:
+      - .:/app
+      - test_node_modules:/app/node_modules
+      - test_refresh_next:/app/apps/refresh/.next
+    depends_on:
+      api-test:
+        condition: service_started
+
+  portal-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: abbatech-portal-test
+    command: npm run dev -w @abbatech/portal
+    environment:
+      APP_ENV: test
+      NODE_ENV: test
+      NEXT_PUBLIC_APP_URL: http://localhost:3100/abbatech/portal
+      NEXT_PUBLIC_REFRESH_URL: http://localhost:3101/abbatech/refresh
+      NEXT_PUBLIC_API_URL: http://localhost:3333/api/v1
+      INTERNAL_API_URL: http://api-test:3333/api/v1
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3100:3100"
+    volumes:
+      - .:/app
+      - test_node_modules:/app/node_modules
+      - test_portal_next:/app/apps/portal/.next
+    depends_on:
+      api-test:
+        condition: service_started
+
+volumes:
+  test_node_modules:
+  test_api_dist:
+  test_refresh_next:
+  test_portal_next:

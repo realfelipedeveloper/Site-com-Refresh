@@ -16,7 +16,7 @@ function read(relativePath) {
     return "";
   }
 
-  return readFileSync(filePath, "utf8");
+  return readFileSync(filePath, "utf8").replace(/\r\n/g, "\n");
 }
 
 function requireIncludes(filePath, content, expected, message) {

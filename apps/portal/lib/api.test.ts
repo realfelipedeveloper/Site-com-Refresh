@@ -60,4 +60,14 @@ describe("portal api client", () => {
     expect(content.title).toBe("Hello");
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("fails loudly when the API does not return a successful response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getSections()).rejects.toThrow("Falha ao carregar /sections");
+  });
 });

@@ -1,6 +1,15 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Client } from "minio";
 import type { Readable } from "stream";
+
+const allowedUserImageTypes = new Map([
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["png", "image/png"],
+  ["webp", "image/webp"],
+  ["gif", "image/gif"]
+]);
+const maxUserImageSizeBytes = 5 * 1024 * 1024;
 
 @Injectable()
 export class UploadService {
@@ -87,7 +96,13 @@ export class UploadService {
   }
 
   private sanitizePathSegment(value: string) {
-    return value.replace(/[^\w.-]/g, "");
+    const sanitized = value.replace(/[^\w.-]/g, "");
+
+    if (!sanitized || sanitized === "." || sanitized === ".." || sanitized.includes("..")) {
+      return "";
+    }
+
+    return sanitized;
   }
 
   private inferContentType(filename: string) {
@@ -96,22 +111,43 @@ export class UploadService {
     if (extension === "png") return "image/png";
     if (extension === "webp") return "image/webp";
     if (extension === "gif") return "image/gif";
-    if (extension === "svg") return "image/svg+xml";
-
     return "image/jpeg";
+  }
+
+  private validateUserImage(file: Express.Multer.File) {
+    const extension = file.originalname.split(".").pop()?.toLowerCase() ?? "";
+    const expectedMimeType = allowedUserImageTypes.get(extension);
+
+    if (!file.buffer || file.size <= 0) {
+      throw new BadRequestException("Arquivo de imagem vazio.");
+    }
+
+    if (file.size > maxUserImageSizeBytes) {
+      throw new BadRequestException("Imagem excede o tamanho maximo permitido.");
+    }
+
+    if (!expectedMimeType || file.mimetype !== expectedMimeType) {
+      throw new BadRequestException("Formato de imagem nao permitido.");
+    }
+
+    return extension;
   }
 
   async saveUserImage(
     file: Express.Multer.File,
     username: string
   ): Promise<string> {
+    const extension = this.validateUserImage(file);
     const safeUsername = username
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^\w-]/g, "");
 
-    const ext = file.originalname.split(".").pop();
-    const filename = `${Date.now()}.${ext}`;
+    if (!safeUsername) {
+      throw new BadRequestException("Username invalido para upload de imagem.");
+    }
+
+    const filename = `${Date.now()}.${extension}`;
 
     const objectName = `users/${safeUsername}/${filename}`;
 
