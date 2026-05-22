@@ -10,7 +10,7 @@
     "node": ">=20.11.0"
   },
   "scripts": {
-    "dev": "node scripts/ensure-dev-volumes.mjs && docker compose up --build",
+    "dev": "node scripts/ensure-dev-volumes.mjs && docker compose up -d --build mysql minio mailpit && docker compose up -d --build api && docker compose up -d --build portal refresh && docker compose logs -f",
     "dev:init-volumes": "docker volume create cms_mysql_data && docker volume create cms_minio_data",
     "local-prod:init-volumes": "docker volume create refresh-local-prod_mysql_localprod_data && docker volume create refresh-local-prod_minio_localprod_data",
     "local-prod:bootstrap": "node scripts/run-local-prod-bootstrap.mjs",
