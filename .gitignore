@@ -102,3 +102,8 @@ docs/*
 backups/
 **/backups/
 
+
+# GitHub Spec Kit / Codex agent workspace
+.agents/*
+!.agents/skills/
+!.agents/skills/**
