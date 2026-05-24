@@ -1,9 +1,15 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from "class-validator";
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, MinLength } from "class-validator";
 import { SectionsService } from "./sections.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/permissions.guard";
 import { RequirePermissions } from "../auth/permissions.decorator";
+
+const SECTION_ACCESS_POLICIES = [
+  "public",
+  "restricted_visible",
+  "restricted_hidden",
+] as const;
 
 class UpsertSectionDto {
   @IsString()
@@ -29,6 +35,10 @@ class UpsertSectionDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsIn(SECTION_ACCESS_POLICIES)
+  accessPolicy?: (typeof SECTION_ACCESS_POLICIES)[number];
 
   @IsOptional()
   @IsString()

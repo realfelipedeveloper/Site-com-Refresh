@@ -1,6 +1,10 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../infra/prisma.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
+import { normalizeFriendlyPath, toFriendlySlug } from "../friendly-urls/friendly-url.utils";
+
+const CONTENT_PUBLISH_PERMISSION = "contents.publish";
 
 type UpsertContentInput = {
   title: string;
@@ -18,6 +22,35 @@ type UpsertContentInput = {
   seoKeywords?: string;
   seoCanonicalUrl?: string;
   seoRobots?: string;
+  validFrom?: Date | string | null;
+  validUntil?: Date | string | null;
+  validateValidity?: boolean;
+};
+
+type PublicationState = {
+  id?: string;
+  sectionId?: string | null;
+  slug?: string | null;
+  status: string;
+  validFrom?: Date | string | null;
+  validUntil?: Date | string | null;
+  validateValidity?: boolean | null;
+};
+
+type SeoFallbackContent = {
+  title?: string | null;
+  excerpt?: string | null;
+  body?: string | null;
+  seo?: {
+    title?: string | null;
+    description?: string | null;
+    keywords?: string | null;
+    canonicalUrl?: string | null;
+    robots?: string | null;
+  } | null;
+  section?: {
+    name?: string | null;
+  } | null;
 };
 
 @Injectable()
@@ -35,8 +68,8 @@ export class ContentsService {
   }
 
   async listPublished() {
-    return this.prisma.content.findMany({
-      where: { status: "published" },
+    const contents = await this.prisma.content.findMany({
+      where: this.buildPublicContentWhere(),
       include: {
         section: true,
         seo: true,
@@ -45,11 +78,13 @@ export class ContentsService {
       orderBy: { publishedAt: "desc" },
       take: 20
     });
+
+    return contents.map((content) => this.withSeoFallback(content));
   }
 
   async findBySlug(slug: string) {
-    const content = await this.prisma.content.findUnique({
-      where: { slug },
+    const content = await this.prisma.content.findFirst({
+      where: this.buildPublicContentWhere({ slug }),
       include: {
         section: true,
         seo: true,
@@ -62,7 +97,7 @@ export class ContentsService {
       throw new NotFoundException("Conteudo nao encontrado.");
     }
 
-    return content;
+    return this.withSeoFallback(content);
   }
 
   async listAdmin(user: AuthenticatedUser) {
@@ -117,8 +152,10 @@ export class ContentsService {
 
   async create(user: AuthenticatedUser, payload: UpsertContentInput) {
     await this.ensureRelations(payload, user.roleId);
+    this.ensurePublicationPermission(user, null, payload);
 
     const slug = await this.resolveUniqueSlug(payload.slug ?? payload.title);
+    const friendlyPath = await this.ensureFriendlyUrlAvailable(slug);
     const seo = await this.upsertSeo(undefined, payload);
 
     const content = await this.prisma.content.create({
@@ -131,6 +168,9 @@ export class ContentsService {
         status: payload.status ?? "draft",
         visibility: payload.visibility ?? "public",
         publishedAt: payload.status === "published" ? new Date() : null,
+        validFrom: payload.validFrom ?? null,
+        validUntil: payload.validUntil ?? null,
+        validateValidity: payload.validateValidity ?? false,
         sectionId: payload.sectionId,
         contentTypeId: payload.contentTypeId,
         templateId: payload.templateId || null,
@@ -146,7 +186,9 @@ export class ContentsService {
       }
     });
 
+    await this.upsertFriendlyUrlForContent(content.id, friendlyPath, content.sectionId);
     await this.createRevision(content.id, user.sub, content);
+    await this.auditContentChanges(user.sub, null, content, null, friendlyPath);
 
     return content;
   }
@@ -164,8 +206,10 @@ export class ContentsService {
     }
 
     await this.ensureRelations(payload, user.roleId);
+    this.ensurePublicationPermission(user, existing, payload);
 
     const slug = await this.resolveUniqueSlug(payload.slug ?? existing.slug, id);
+    const friendlyPath = await this.ensureFriendlyUrlAvailable(slug, id);
     const seo = await this.upsertSeo(existing.seoId, payload);
     const nextStatus = payload.status ?? existing.status;
 
@@ -184,6 +228,9 @@ export class ContentsService {
             : payload.status === "draft"
               ? null
               : existing.publishedAt,
+        validFrom: payload.validFrom ?? existing.validFrom,
+        validUntil: payload.validUntil ?? existing.validUntil,
+        validateValidity: payload.validateValidity ?? existing.validateValidity,
         sectionId: payload.sectionId,
         contentTypeId: payload.contentTypeId,
         templateId: payload.templateId || null,
@@ -198,7 +245,9 @@ export class ContentsService {
       }
     });
 
+    await this.upsertFriendlyUrlForContent(content.id, friendlyPath, content.sectionId);
     await this.createRevision(content.id, user.sub, content);
+    await this.auditContentChanges(user.sub, existing, content, normalizeFriendlyPath(existing.slug), friendlyPath);
 
     return content;
   }
@@ -238,6 +287,10 @@ export class ContentsService {
       throw new BadRequestException("Seção inválida.");
     }
 
+    if (!section.isActive) {
+      throw new BadRequestException("A seção selecionada está inativa.");
+    }
+
     if (!contentType) {
       throw new BadRequestException("Máscara invalida.");
     }
@@ -261,6 +314,34 @@ export class ContentsService {
         throw new BadRequestException("Template invalido.");
       }
     }
+  }
+
+  private ensurePublicationPermission(
+    user: AuthenticatedUser,
+    existing: PublicationState | null,
+    payload: UpsertContentInput
+  ) {
+    if (!this.requiresPublishPermission(existing, payload)) {
+      return;
+    }
+
+    if (!user.permissions?.includes(CONTENT_PUBLISH_PERMISSION)) {
+      throw new ForbiddenException("Permissao contents.publish obrigatoria para publicar conteudo.");
+    }
+  }
+
+  private requiresPublishPermission(existing: PublicationState | null, payload: UpsertContentInput) {
+    const nextStatus = payload.status ?? existing?.status ?? "draft";
+    const createsPublishedContent = !existing && nextStatus === "published";
+    const publishesExistingContent = Boolean(existing && existing.status !== "published" && nextStatus === "published");
+    const changesPublishedStatus = Boolean(
+      existing && existing.status === "published" && payload.status !== undefined && payload.status !== existing.status
+    );
+    const touchesValidity =
+      payload.validFrom !== undefined || payload.validUntil !== undefined || payload.validateValidity !== undefined;
+    const changesPublishedValidity = touchesValidity && (existing?.status === "published" || nextStatus === "published");
+
+    return createsPublishedContent || publishesExistingContent || changesPublishedStatus || changesPublishedValidity;
   }
 
   private async upsertSeo(existingSeoId: string | null | undefined, payload: UpsertContentInput) {
@@ -295,7 +376,7 @@ export class ContentsService {
   }
 
   private async resolveUniqueSlug(value: string, currentId?: string) {
-    const baseSlug = this.toSlug(value);
+    const baseSlug = toFriendlySlug(value);
     let candidate = baseSlug;
     let suffix = 1;
 
@@ -316,14 +397,173 @@ export class ContentsService {
     }
   }
 
-  private toSlug(value: string) {
-    return value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+  private async ensureFriendlyUrlAvailable(slug: string, currentContentId?: string) {
+    const path = normalizeFriendlyPath(slug);
+    const existing = await this.prisma.friendlyUrl.findFirst({
+      where: {
+        path
+      }
+    });
+
+    if (!existing || (existing.targetType === "content" && existing.contentId === currentContentId)) {
+      return path;
+    }
+
+    throw new ConflictException("Ja existe uma URL amigavel com o mesmo caminho.");
+  }
+
+  private async upsertFriendlyUrlForContent(contentId: string, path: string, primarySectionId: string) {
+    const existing = await this.prisma.friendlyUrl.findFirst({
+      where: {
+        targetType: "content",
+        contentId
+      }
+    });
+
+    if (existing) {
+      await this.prisma.friendlyUrl.update({
+        where: { id: existing.id },
+        data: {
+          path,
+          primarySectionId,
+          isActive: true
+        }
+      });
+      return;
+    }
+
+    await this.prisma.friendlyUrl.create({
+      data: {
+        path,
+        targetType: "content",
+        contentId,
+        primarySectionId,
+        isActive: true
+      }
+    });
+  }
+
+  private withSeoFallback<T extends SeoFallbackContent>(content: T): T {
+    const seo = content.seo;
+    const fallbackTitle = this.sanitizeSeoText(seo?.title || content.title || "Conteudo");
+    const fallbackDescription = this.sanitizeSeoText(
+      seo?.description ||
+        content.excerpt ||
+        (content.section?.name ? `${fallbackTitle} - ${content.section.name}` : fallbackTitle)
+    );
+
+    return {
+      ...content,
+      seo: {
+        ...seo,
+        title: fallbackTitle,
+        description: fallbackDescription,
+        keywords: seo?.keywords ?? undefined,
+        canonicalUrl: seo?.canonicalUrl ?? null,
+        robots: seo?.robots ?? "index,follow"
+      }
+    };
+  }
+
+  private sanitizeSeoText(value: string) {
+    const withoutHtml = value.replace(/<[^>]*>/g, " ");
+    const withoutSensitiveValues = withoutHtml.replace(
+      /\b(password|senha|token|secret|segredo|authorization|cookie)\s*[:=]\s*\S+/gi,
+      "$1=[redacted]"
+    );
+    const normalized = withoutSensitiveValues.replace(/\s+/g, " ").trim();
+
+    return normalized || "Conteudo";
+  }
+
+  private async auditContentChanges(
+    actorId: string,
+    previous: PublicationState | null,
+    current: PublicationState,
+    previousFriendlyPath: string | null,
+    currentFriendlyPath: string
+  ) {
+    const events: Array<{ action: string; metadata: Prisma.InputJsonValue }> = [];
+
+    if (!previous && current.status === "published") {
+      events.push({
+        action: "content.published",
+        metadata: { status: { to: "published" } }
+      });
+    }
+
+    if (previous && previous.status !== "published" && current.status === "published") {
+      events.push({
+        action: "content.published",
+        metadata: { status: { from: previous.status, to: current.status } }
+      });
+    }
+
+    if (previous?.status === "published" && current.status === "archived") {
+      events.push({
+        action: "content.archived",
+        metadata: { status: { from: previous.status, to: current.status } }
+      });
+    }
+
+    if (previous && previousFriendlyPath !== currentFriendlyPath) {
+      events.push({
+        action: "content.url_changed",
+        metadata: { path: { from: previousFriendlyPath, to: currentFriendlyPath } }
+      });
+    }
+
+    if (previous && this.hasValidityChanged(previous, current)) {
+      events.push({
+        action: "content.validity_changed",
+        metadata: {
+          validFrom: { from: this.toAuditValue(previous.validFrom), to: this.toAuditValue(current.validFrom) },
+          validUntil: { from: this.toAuditValue(previous.validUntil), to: this.toAuditValue(current.validUntil) },
+          validateValidity: { from: previous.validateValidity ?? false, to: current.validateValidity ?? false }
+        }
+      });
+    }
+
+    if (previous?.sectionId && current.sectionId && previous.sectionId !== current.sectionId) {
+      events.push({
+        action: "content.primary_section_changed",
+        metadata: { sectionId: { from: previous.sectionId, to: current.sectionId } }
+      });
+    }
+
+    for (const event of events) {
+      await this.prisma.auditLog.create({
+        data: {
+          actorId,
+          action: event.action,
+          entityType: "Content",
+          entityId: current.id,
+          metadata: event.metadata
+        }
+      });
+    }
+  }
+
+  private hasValidityChanged(previous: PublicationState, current: PublicationState) {
+    const publicationRelevant = previous.status === "published" || current.status === "published";
+
+    if (!publicationRelevant) {
+      return false;
+    }
+
+    return (
+      this.toAuditValue(previous.validFrom) !== this.toAuditValue(current.validFrom) ||
+      this.toAuditValue(previous.validUntil) !== this.toAuditValue(current.validUntil) ||
+      (previous.validateValidity ?? false) !== (current.validateValidity ?? false)
+    );
+  }
+
+  private toAuditValue(value: Date | string | null | undefined) {
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    return value ?? null;
   }
 
   private async getRoleScope(roleId?: string) {
@@ -393,5 +633,46 @@ export class ContentsService {
       sectionIds,
       contentTypeIds
     };
+  }
+
+  private buildPublicContentWhere(extraWhere: Prisma.ContentWhereInput = {}): Prisma.ContentWhereInput {
+    const now = new Date();
+    const startOfToday = this.startOfDay(now);
+    const publicPolicy: Prisma.ContentWhereInput = {
+      section: {
+        isActive: true,
+        accessPolicy: "public"
+      },
+      status: "published",
+      visibility: "public",
+      OR: [
+        { validateValidity: false },
+        {
+          validateValidity: true,
+          AND: [
+            {
+              OR: [{ validFrom: null }, { validFrom: { lte: now } }]
+            },
+            {
+              OR: [{ validUntil: null }, { validUntil: { gte: startOfToday } }]
+            }
+          ]
+        }
+      ]
+    };
+
+    if (Object.keys(extraWhere).length === 0) {
+      return publicPolicy;
+    }
+
+    return {
+      AND: [extraWhere, publicPolicy]
+    };
+  }
+
+  private startOfDay(date: Date) {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    return start;
   }
 }

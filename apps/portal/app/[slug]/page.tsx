@@ -19,6 +19,10 @@ export default async function ContentPage({ params }: PageProps) {
     notFound();
   }
 
+  if (!content) {
+    notFound();
+  }
+
   const paragraphs = (content.body ?? "").split(/\n{2,}/).filter(Boolean);
 
   return (

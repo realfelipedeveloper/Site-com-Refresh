@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getPortalApiUrl, getPublishedContents, getSections } from "../lib/api";
+import { getContentHref, getPortalApiUrl, getPublishedContents, getSections } from "../lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +53,7 @@ export default async function HomePage() {
               <p className="mt-3 text-white/78">{featuredContent.excerpt}</p>
               <Link
                 className="mt-6 inline-flex rounded-full bg-white px-5 py-3 text-sm font-semibold text-pine"
-                href={`/${featuredContent.slug}`}
+                href={getContentHref(featuredContent)}
               >
                 Ler publicacao
               </Link>
@@ -110,7 +110,7 @@ export default async function HomePage() {
                     ? new Date(content.publishedAt).toLocaleDateString("pt-BR")
                     : "Rascunho"}
                 </span>
-                <Link className="text-sm font-semibold text-pine" href={`/${content.slug}`}>
+                <Link className="text-sm font-semibold text-pine" href={getContentHref(content)}>
                   Abrir
                 </Link>
               </div>

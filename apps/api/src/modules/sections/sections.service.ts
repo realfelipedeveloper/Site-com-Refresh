@@ -1,5 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma.service";
+import { normalizeFriendlyPath, toFriendlySlug } from "../friendly-urls/friendly-url.utils";
+
+type SectionAccessPolicy =
+  | "public"
+  | "restricted_visible"
+  | "restricted_hidden";
 
 type UpsertSectionInput = {
   name: string;
@@ -8,7 +14,20 @@ type UpsertSectionInput = {
   order?: number;
   visibleInMenu?: boolean;
   isActive?: boolean;
+  accessPolicy?: SectionAccessPolicy;
   parentId?: string | null;
+};
+
+type PublicMenuSection = {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  order: number;
+  isActive: boolean;
+  visibleInMenu: boolean;
+  accessPolicy?: string | null;
+  children?: PublicMenuSection[];
+  [key: string]: unknown;
 };
 
 @Injectable()
@@ -26,15 +45,16 @@ export class SectionsService {
   }
 
   async listTree() {
-    return this.prisma.section.findMany({
-      where: { parentId: null, isActive: true },
-      include: {
-        children: {
-          orderBy: { order: "asc" }
-        }
+    const sections = await this.prisma.section.findMany({
+      where: {
+        isActive: true,
+        visibleInMenu: true,
+        accessPolicy: { in: ["public", "restricted_visible"] }
       },
-      orderBy: { order: "asc" }
+      orderBy: [{ order: "asc" }, { name: "asc" }]
     });
+
+    return this.buildPublicMenuTree(sections);
   }
 
   async listAdmin() {
@@ -54,12 +74,13 @@ export class SectionsService {
 
   async create(payload: UpsertSectionInput) {
     const parent = await this.getParent(payload.parentId);
-    const slug = this.toSlug(payload.slug ?? payload.name);
+    const slug = toFriendlySlug(payload.slug ?? payload.name);
     const path = this.buildPath(parent?.path, slug);
 
     await this.ensureUniqueSlugAndPath(slug, path);
+    await this.ensureFriendlyUrlAvailable(path);
 
-    return this.prisma.section.create({
+    const section = await this.prisma.section.create({
       data: {
         displayId: await this.nextSequenceNumber(),
         name: payload.name,
@@ -69,9 +90,14 @@ export class SectionsService {
         order: payload.order ?? 0,
         visibleInMenu: payload.visibleInMenu ?? true,
         isActive: payload.isActive ?? true,
+        accessPolicy: payload.accessPolicy ?? "public",
         parentId: parent?.id ?? null
       }
     });
+
+    await this.upsertFriendlyUrlForSection(section);
+
+    return section;
   }
 
   async update(id: string, payload: UpsertSectionInput) {
@@ -84,10 +110,11 @@ export class SectionsService {
     }
 
     const parent = await this.getParent(payload.parentId ?? current.parentId);
-    const slug = this.toSlug(payload.slug ?? current.slug ?? payload.name);
+    const slug = toFriendlySlug(payload.slug ?? current.slug ?? payload.name);
     const path = this.buildPath(parent?.path, slug);
 
     await this.ensureUniqueSlugAndPath(slug, path, id);
+    await this.ensureFriendlyUrlAvailable(path, id);
 
     const section = await this.prisma.section.update({
       where: { id },
@@ -99,11 +126,14 @@ export class SectionsService {
         order: payload.order ?? current.order,
         visibleInMenu: payload.visibleInMenu ?? current.visibleInMenu,
         isActive: payload.isActive ?? current.isActive,
+        accessPolicy: payload.accessPolicy ?? current.accessPolicy ?? "public",
         parentId: parent?.id ?? null
       }
     });
 
     await this.rebuildChildPaths(section.id, section.path);
+    await this.upsertFriendlyUrlForSection(section);
+    await this.auditSectionAccessPolicyChange(current, section);
 
     return section;
   }
@@ -152,17 +182,48 @@ export class SectionsService {
 
   private buildPath(parentPath: string | undefined, slug: string) {
     const base = parentPath?.replace(/\/+$/, "") ?? "";
-    return `${base}/${slug}`;
+    return normalizeFriendlyPath(`${base}/${slug}`);
   }
 
-  private toSlug(value: string) {
-    return value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+  private buildPublicMenuTree(sections: PublicMenuSection[]) {
+    const eligibleSections = sections.filter((section) => this.isPublicMenuSection(section));
+    const hasParentReferences = eligibleSections.some((section) => section.parentId !== null && section.parentId !== undefined);
+
+    if (!hasParentReferences) {
+      return this.sortPublicMenuSections(eligibleSections).map((section) => this.toPublicMenuNode(section));
+    }
+
+    const sectionsByParent = new Map<string | null, PublicMenuSection[]>();
+    for (const section of eligibleSections) {
+      const parentId = section.parentId ?? null;
+      sectionsByParent.set(parentId, [...(sectionsByParent.get(parentId) ?? []), section]);
+    }
+
+    const buildChildren = (parentId: string | null): PublicMenuSection[] =>
+      this.sortPublicMenuSections(sectionsByParent.get(parentId) ?? []).map((section) => ({
+        ...section,
+        children: buildChildren(section.id)
+      }));
+
+    return buildChildren(null);
+  }
+
+  private isPublicMenuSection(section: PublicMenuSection) {
+    const accessPolicy = section.accessPolicy ?? "public";
+    return section.isActive && section.visibleInMenu && accessPolicy !== "restricted_hidden";
+  }
+
+  private sortPublicMenuSections(sections: PublicMenuSection[]) {
+    return [...sections].sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
+  }
+
+  private toPublicMenuNode(section: PublicMenuSection): PublicMenuSection {
+    return {
+      ...section,
+      children: this.sortPublicMenuSections(section.children?.filter((child) => this.isPublicMenuSection(child)) ?? []).map((child) =>
+        this.toPublicMenuNode(child)
+      )
+    };
   }
 
   private async ensureUniqueSlugAndPath(slug: string, path: string, currentId?: string) {
@@ -178,6 +239,77 @@ export class SectionsService {
     }
   }
 
+  private async ensureFriendlyUrlAvailable(path: string, currentSectionId?: string) {
+    const normalizedPath = normalizeFriendlyPath(path);
+    const existing = await this.prisma.friendlyUrl.findFirst({
+      where: {
+        path: normalizedPath
+      }
+    });
+
+    if (!existing || (existing.targetType === "section" && existing.sectionId === currentSectionId)) {
+      return normalizedPath;
+    }
+
+    throw new ConflictException("Ja existe uma URL amigavel com o mesmo caminho.");
+  }
+
+  private async upsertFriendlyUrlForSection(section: { id: string; path: string }) {
+    const path = normalizeFriendlyPath(section.path);
+    const existing = await this.prisma.friendlyUrl.findFirst({
+      where: {
+        targetType: "section",
+        sectionId: section.id
+      }
+    });
+
+    if (existing) {
+      await this.prisma.friendlyUrl.update({
+        where: { id: existing.id },
+        data: {
+          path,
+          isActive: true
+        }
+      });
+      return;
+    }
+
+    await this.prisma.friendlyUrl.create({
+      data: {
+        path,
+        targetType: "section",
+        sectionId: section.id,
+        isActive: true
+      }
+    });
+  }
+
+  private async auditSectionAccessPolicyChange(
+    previous: { id: string; accessPolicy?: string | null },
+    current: { id: string; accessPolicy?: string | null }
+  ) {
+    const previousPolicy = previous.accessPolicy ?? "public";
+    const currentPolicy = current.accessPolicy ?? "public";
+
+    if (previousPolicy === currentPolicy) {
+      return;
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: "section.access_policy_changed",
+        entityType: "Section",
+        entityId: current.id,
+        metadata: {
+          accessPolicy: {
+            from: previousPolicy,
+            to: currentPolicy
+          }
+        }
+      }
+    });
+  }
+
   private async rebuildChildPaths(parentId: string, parentPath: string) {
     const children = await this.prisma.section.findMany({
       where: { parentId },
@@ -186,6 +318,7 @@ export class SectionsService {
 
     for (const child of children) {
       const nextPath = this.buildPath(parentPath, child.slug);
+      await this.ensureFriendlyUrlAvailable(nextPath, child.id);
       await this.prisma.section.update({
         where: { id: child.id },
         data: {
@@ -193,6 +326,10 @@ export class SectionsService {
         }
       });
 
+      await this.upsertFriendlyUrlForSection({
+        ...child,
+        path: nextPath
+      });
       await this.rebuildChildPaths(child.id, nextPath);
     }
   }

@@ -15,6 +15,7 @@ export type PublicContent = {
   id: EntityId;
   title: string;
   slug: string;
+  url?: string | null;
   excerpt: string | null;
   body: string | null;
   publishedAt: string | null;
@@ -22,8 +23,9 @@ export type PublicContent = {
     id: EntityId;
     name: string;
     path: string;
+    url?: string | null;
   };
-  seo: SeoSummary | null;
+  seo: SeoSummary;
   template: {
     id: EntityId;
     name: string;
@@ -40,6 +42,10 @@ export type AdminContent = {
   status: ContentStatus | string;
   visibility: ContentVisibility | string;
   publishedAt: string | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  validateValidity?: boolean;
+  url?: string | null;
   sectionId: EntityId;
   contentTypeId: EntityId;
   templateId: EntityId | null;
@@ -93,4 +99,7 @@ export type UpsertContentRequest = {
   seoKeywords?: string;
   seoCanonicalUrl?: string;
   seoRobots?: string;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  validateValidity?: boolean;
 };

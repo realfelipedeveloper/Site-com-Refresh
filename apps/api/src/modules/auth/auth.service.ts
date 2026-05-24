@@ -95,7 +95,7 @@ export class AuthService {
       throw new UnauthorizedException("Credenciais invalidas.");
     }
 
-    if (!user.isActive || ["Inativo", "Excluído"].includes(user.status)) {
+    if (!this.isActiveBusinessUser(user)) {
       throw new UnauthorizedException("Usuario inativo.");
     }
 
@@ -494,7 +494,11 @@ export class AuthService {
   }
 
   private canRecoverPassword(user: { isActive: boolean; status: string }) {
-    return user.isActive && !["Inativo", "Excluído"].includes(user.status);
+    return this.isActiveBusinessUser(user);
+  }
+
+  private isActiveBusinessUser(user: { isActive: boolean; status: string }) {
+    return user.isActive && user.status === "Ativo";
   }
 
   private async auditPasswordResetRequested(userId: string, expiresAt: Date) {
