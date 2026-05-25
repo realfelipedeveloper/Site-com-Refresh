@@ -105,10 +105,10 @@ export class ContentsService {
 
     return this.prisma.content.findMany({
       where: {
-        ...(scope.sectionIds?.length
+        ...(scope.sectionIds
           ? { sectionId: { in: scope.sectionIds } }
           : {}),
-        ...(scope.contentTypeIds?.length
+        ...(scope.contentTypeIds
           ? { contentTypeId: { in: scope.contentTypeIds } }
           : {})
       },
@@ -205,6 +205,7 @@ export class ContentsService {
       throw new NotFoundException("Conteudo nao encontrado.");
     }
 
+    await this.ensureExistingContentInScope(existing, user.roleId);
     await this.ensureRelations(payload, user.roleId);
     this.ensurePublicationPermission(user, existing, payload);
 
@@ -313,6 +314,18 @@ export class ContentsService {
       if (!template) {
         throw new BadRequestException("Template invalido.");
       }
+    }
+  }
+
+  private async ensureExistingContentInScope(existing: PublicationState, roleId?: string) {
+    if (!existing.sectionId) {
+      return;
+    }
+
+    const scope = await this.getRoleScope(roleId);
+
+    if (scope.sectionIds && !scope.sectionIds.includes(existing.sectionId)) {
+      throw new ForbiddenException("Este perfil nao pode alterar conteudo fora do escopo de seção.");
     }
   }
 
@@ -577,11 +590,7 @@ export class ContentsService {
     const role = await this.prisma.role.findUnique({
       where: { id: roleId },
       include: {
-        sectionAccesses: {
-          include: {
-            section: true
-          }
-        },
+        sectionAccesses: true,
         contentTypeAccesses: true
       }
     });
@@ -610,16 +619,7 @@ export class ContentsService {
 
     let sectionIds: string[] | null = [];
     if (role.sectionAccesses.length > 0) {
-      const allowedPaths = role.sectionAccesses.map(
-        (entry: (typeof role.sectionAccesses)[number]) => entry.section.path
-      );
-      const allowedSections = await this.prisma.section.findMany({
-        where: {
-          OR: allowedPaths.flatMap((path: string) => [{ path }, { path: { startsWith: `${path}/` } }])
-        },
-        select: { id: true }
-      });
-      sectionIds = allowedSections.map((entry: (typeof allowedSections)[number]) => entry.id);
+      sectionIds = role.sectionAccesses.map((entry: (typeof role.sectionAccesses)[number]) => entry.sectionId);
     }
 
     const contentTypeIds =
