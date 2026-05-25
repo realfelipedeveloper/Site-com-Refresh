@@ -1,4 +1,4 @@
-import { ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import { SectionsService } from "./sections.service";
@@ -221,6 +221,108 @@ describe("SectionsService friendly URL policy", () => {
         path: "/area-noticias"
       }
     });
+  });
+});
+
+describe("SectionsService hierarchy integrity", () => {
+  it("rejects updating a section to use itself as parent", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findUnique.mockResolvedValue({
+      id: "section-1",
+      name: "Institucional",
+      slug: "institucional",
+      path: "/institucional",
+      parentId: null,
+      order: 1,
+      visibleInMenu: true,
+      isActive: true
+    });
+
+    await expect(
+      service.update("section-1", {
+        name: "Institucional",
+        parentId: "section-1"
+      })
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.section.update).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.findFirst).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving a section under its direct child", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findUnique
+      .mockResolvedValueOnce({
+        id: "parent",
+        name: "Institucional",
+        slug: "institucional",
+        path: "/institucional",
+        parentId: null,
+        order: 1,
+        visibleInMenu: true,
+        isActive: true
+      })
+      .mockResolvedValueOnce({
+        id: "child",
+        name: "Sobre",
+        slug: "sobre",
+        path: "/institucional/sobre",
+        parentId: "parent",
+        order: 1,
+        visibleInMenu: true,
+        isActive: true
+      });
+
+    await expect(
+      service.update("parent", {
+        name: "Institucional",
+        parentId: "child"
+      })
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.section.update).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.findFirst).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving a section under a deep descendant", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findUnique
+      .mockResolvedValueOnce({
+        id: "root",
+        name: "Institucional",
+        slug: "institucional",
+        path: "/institucional",
+        parentId: null,
+        order: 1,
+        visibleInMenu: true,
+        isActive: true
+      })
+      .mockResolvedValueOnce({
+        id: "grandchild",
+        name: "Equipe",
+        slug: "equipe",
+        path: "/institucional/sobre/equipe",
+        parentId: "child",
+        order: 1,
+        visibleInMenu: true,
+        isActive: true
+      });
+
+    await expect(
+      service.update("root", {
+        name: "Institucional",
+        parentId: "grandchild"
+      })
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.section.update).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.findFirst).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });
 
