@@ -1,10 +1,16 @@
 import type { EntityId } from "./common";
 
+export type SectionAccessPolicy =
+  | "public"
+  | "restricted_visible"
+  | "restricted_hidden";
+
 export type SectionTreeNode = {
   id: EntityId;
   name: string;
   slug: string;
   path: string;
+  accessPolicy: SectionAccessPolicy;
   children: SectionTreeNode[];
 };
 
@@ -18,6 +24,7 @@ export type AdminSection = {
   description: string | null;
   isActive: boolean;
   visibleInMenu: boolean;
+  accessPolicy: SectionAccessPolicy;
   order: number;
   visits?: number;
   _count?: {
@@ -33,5 +40,6 @@ export type UpsertSectionRequest = {
   order?: number;
   visibleInMenu?: boolean;
   isActive?: boolean;
+  accessPolicy?: SectionAccessPolicy;
   parentId?: EntityId;
 };

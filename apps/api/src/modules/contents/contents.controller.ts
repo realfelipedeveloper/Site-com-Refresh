@@ -9,6 +9,8 @@ import {
   UseGuards
 } from "@nestjs/common";
 import {
+  IsBoolean,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -79,6 +81,18 @@ class UpsertContentDto {
   @IsOptional()
   @IsString()
   seoRobots?: string;
+
+  @IsOptional()
+  @IsDateString()
+  validFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  validUntil?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  validateValidity?: boolean;
 }
 
 @Controller("contents")

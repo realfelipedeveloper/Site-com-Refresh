@@ -14,6 +14,7 @@ export const bootstrapPermissions = [
   { code: "sections.write", description: "Gerenciar secoes" },
   { code: "contents.read", description: "Ler conteudos no CMS" },
   { code: "contents.write", description: "Gerenciar conteudos" },
+  { code: "contents.publish", description: "Publicar e controlar validade de conteudos" },
   { code: "templates.read", description: "Ler templates" },
   { code: "templates.write", description: "Gerenciar templates" },
   { code: "elements.read", description: "Ler elementos" },

@@ -97,6 +97,8 @@ handoff-status.md
 # Local/project docs not versioned in this repository
 docs/*
 !docs/refresh-automated-test-suite.md
+legado/
+legado/*
 
 # Local database backups
 backups/

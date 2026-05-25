@@ -148,10 +148,13 @@ model Section {
   visits        Int                 @default(0)
   visibleInMenu Boolean             @default(true)
   isActive      Boolean             @default(true)
+  accessPolicy  String              @default("public")
   parent        Section?            @relation("SectionTree", fields: [parentId], references: [id])
   children      Section[]           @relation("SectionTree")
   contents      Content[]
   roleAccesses  RoleSectionAccess[]
+  friendlyUrls  FriendlyUrl[]       @relation("SectionFriendlyUrls")
+  primaryUrls   FriendlyUrl[]       @relation("FriendlyUrlPrimarySection")
 }
 
 model ContentType {
@@ -264,6 +267,9 @@ model Content {
   status             String            @default("draft")
   visibility         String            @default("public")
   publishedAt        DateTime?
+  validFrom          DateTime?
+  validUntil         DateTime?
+  validateValidity   Boolean           @default(false)
   contentTypeId      String
   sectionId          String
   templateId         String?
@@ -279,7 +285,28 @@ model Content {
   seo                SeoMetadata?      @relation(fields: [seoId], references: [id])
   author             User?             @relation("AuthoredContents", fields: [authorId], references: [id])
   featuredMedia      MediaAsset?       @relation(fields: [featuredMediaId], references: [id])
+  friendlyUrls       FriendlyUrl[]      @relation("ContentFriendlyUrls")
   revisions          ContentRevision[]
+}
+
+model FriendlyUrl {
+  id               String   @id @default(cuid())
+  path             String   @unique
+  targetType       String
+  sectionId        String?
+  contentId        String?
+  primarySectionId String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  section          Section? @relation("SectionFriendlyUrls", fields: [sectionId], references: [id])
+  content          Content? @relation("ContentFriendlyUrls", fields: [contentId], references: [id])
+  primarySection   Section? @relation("FriendlyUrlPrimarySection", fields: [primarySectionId], references: [id])
+
+  @@index([targetType])
+  @@index([sectionId])
+  @@index([contentId])
+  @@index([primarySectionId])
 }
 
 model ContentRevision {

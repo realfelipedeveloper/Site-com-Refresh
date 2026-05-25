@@ -160,6 +160,46 @@ describe("AuthService password reset", () => {
     expect(mailCall.to).toBe("admin@example.com");
   });
 
+  it.each(["Verificado", "Novo", "Inativo", "Excluido", "Excluído"])(
+    "returns the generic message without creating a token for %s users",
+    async (status) => {
+      const { mailService, prisma, service } = createAuthService();
+      prisma.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        email: "admin@example.com",
+        name: "Admin",
+        isActive: true,
+        status
+      });
+
+      await expect(service.forgotPassword("admin@example.com")).resolves.toEqual({
+        message: PASSWORD_RESET_GENERIC_MESSAGE
+      });
+
+      expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
+      expect(mailService.sendPasswordResetInstructions).not.toHaveBeenCalled();
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    }
+  );
+
+  it("returns the generic message without creating a token when the user flag is inactive", async () => {
+    const { mailService, prisma, service } = createAuthService();
+    prisma.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      email: "admin@example.com",
+      name: "Admin",
+      isActive: false,
+      status: "Ativo"
+    });
+
+    await expect(service.forgotPassword("admin@example.com")).resolves.toEqual({
+      message: PASSWORD_RESET_GENERIC_MESSAGE
+    });
+
+    expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
+    expect(mailService.sendPasswordResetInstructions).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid, expired or already used tokens", async () => {
     const { prisma, service } = createAuthService();
     prisma.passwordResetToken.findUnique.mockResolvedValue(null);
@@ -230,6 +270,24 @@ describe("AuthService password reset", () => {
       })
     );
   });
+
+  it.each(["Verificado", "Novo", "Inativo", "Excluido", "Excluído"])(
+    "rejects password reset tokens for %s users",
+    async (status) => {
+      const { prisma, service } = createAuthService();
+      prisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: "reset-1",
+        userId: "user-1",
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { isActive: true, status }
+      });
+
+      await expect(service.resetPassword("valid-token", "Senha123", "Senha123")).rejects.toThrow(
+        PASSWORD_RESET_INVALID_LINK_MESSAGE
+      );
+    }
+  );
 });
 
 describe("AuthService login security", () => {
@@ -278,13 +336,31 @@ describe("AuthService login security", () => {
     });
   });
 
-  it("rejects inactive or logically deleted users before creating a session", async () => {
+  it.each(["Verificado", "Novo", "Inativo", "Excluido", "Excluído"])(
+    "rejects %s users before creating a session",
+    async (status) => {
+      const { authSessionService, prisma, service } = createAuthService();
+      prisma.user.findFirst.mockResolvedValue({
+        id: "user-1",
+        passwordHash: "Refresh123!",
+        isActive: true,
+        status,
+        roles: []
+      });
+
+      await expect(service.login("user@example.test", "Refresh123!")).rejects.toThrow("Usuario inativo.");
+      expect(authSessionService.createSession).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    }
+  );
+
+  it("rejects users with inactive flag before creating a session", async () => {
     const { authSessionService, prisma, service } = createAuthService();
     prisma.user.findFirst.mockResolvedValue({
       id: "user-1",
       passwordHash: "Refresh123!",
       isActive: false,
-      status: "Excluído",
+      status: "Ativo",
       roles: []
     });
 
