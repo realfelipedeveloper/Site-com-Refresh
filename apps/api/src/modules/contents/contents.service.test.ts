@@ -22,6 +22,7 @@ function createContentsService() {
       create: vi.fn()
     },
     contentType: {
+      findMany: vi.fn(),
       findUnique: vi.fn()
     },
     friendlyUrl: {
@@ -29,12 +30,19 @@ function createContentsService() {
       findFirst: vi.fn(),
       update: vi.fn()
     },
+    role: {
+      findUnique: vi.fn()
+    },
     section: {
+      findMany: vi.fn(),
       findUnique: vi.fn()
     },
     seoMetadata: {
       create: vi.fn(),
       update: vi.fn()
+    },
+    template: {
+      findMany: vi.fn()
     }
   };
 
@@ -128,6 +136,31 @@ describe("ContentsService public content policy", () => {
       expect.objectContaining({
         id: "content-1",
         validateValidity: false
+      })
+    ]);
+
+    expect(prisma.content.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expectedPublicWhere()
+      })
+    );
+  });
+
+  it("keeps published public content visible in public sections through the public policy", async () => {
+    const { prisma, service } = createContentsService();
+    prisma.content.findMany.mockResolvedValue([
+      {
+        id: "content-public-policy",
+        section: { isActive: true, accessPolicy: "public" },
+        status: "published",
+        visibility: "public",
+        validateValidity: false
+      }
+    ]);
+
+    await expect(service.listPublished()).resolves.toEqual([
+      expect.objectContaining({
+        id: "content-public-policy"
       })
     ]);
 
@@ -325,6 +358,11 @@ describe("ContentsService friendly URL policy", () => {
   const user = { sub: "user-1" } as never;
   const writerUser = { sub: "writer-1", permissions: ["contents.write"] } as never;
   const publisherUser = { sub: "publisher-1", permissions: ["contents.write", "contents.publish"] } as never;
+  const scopedUser = {
+    sub: "scoped-1",
+    permissions: ["contents.write"],
+    roleId: "role-editor"
+  } as never;
   const validPayload = {
     title: "Notícias",
     slug: "Notícias",
@@ -336,6 +374,145 @@ describe("ContentsService friendly URL policy", () => {
     prisma.section.findUnique.mockResolvedValue({ id: "section-1", path: "/editorial", isActive: true });
     prisma.contentType.findUnique.mockResolvedValue({ id: "type-1" });
   }
+
+  function mockScopedRole(
+    prisma: ReturnType<typeof createContentsService>["prisma"],
+    sectionIds = ["section-1"],
+    contentTypeIds = ["type-1"]
+  ) {
+    prisma.role.findUnique.mockResolvedValue({
+      id: "role-editor",
+      name: "Editor",
+      functionName: "Editor",
+      sectionAccesses: sectionIds.map((sectionId) => ({ sectionId })),
+      contentTypeAccesses: contentTypeIds.map((contentTypeId) => ({ contentTypeId }))
+    });
+  }
+
+  it("allows creating content in an explicitly scoped section", async () => {
+    const { prisma, service } = createContentsService();
+    mockScopedRole(prisma);
+    mockValidRelations(prisma);
+    prisma.content.findFirst.mockResolvedValue(null);
+    prisma.friendlyUrl.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    prisma.seoMetadata.create.mockResolvedValue({ id: "seo-1" });
+    prisma.content.aggregate.mockResolvedValue({ _max: { displayId: 4 } });
+    prisma.content.create.mockResolvedValue({
+      id: "content-1",
+      slug: "noticias",
+      sectionId: "section-1",
+      status: "draft"
+    });
+    prisma.contentRevision.create.mockResolvedValue({});
+    prisma.friendlyUrl.create.mockResolvedValue({});
+
+    await service.create(scopedUser, validPayload);
+
+    expect(prisma.content.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sectionId: "section-1",
+          contentTypeId: "type-1"
+        })
+      })
+    );
+  });
+
+  it("rejects creating content outside explicit section scope without side effects", async () => {
+    const { prisma, service } = createContentsService();
+    mockScopedRole(prisma, ["section-1"]);
+    prisma.section.findUnique.mockResolvedValue({ id: "section-2", path: "/fora", isActive: true });
+    prisma.contentType.findUnique.mockResolvedValue({ id: "type-1" });
+
+    await expect(
+      service.create(scopedUser, {
+        ...validPayload,
+        sectionId: "section-2"
+      })
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.content.create).not.toHaveBeenCalled();
+    expect(prisma.seoMetadata.create).not.toHaveBeenCalled();
+    expect(prisma.contentRevision.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects updating content when the existing section is outside active role scope", async () => {
+    const { prisma, service } = createContentsService();
+    mockScopedRole(prisma, ["section-1"]);
+    prisma.content.findUnique.mockResolvedValue({
+      id: "content-1",
+      slug: "noticias",
+      status: "draft",
+      visibility: "public",
+      publishedAt: null,
+      validFrom: null,
+      validUntil: null,
+      validateValidity: false,
+      sectionId: "section-2",
+      seoId: null
+    });
+
+    await expect(service.update("content-1", scopedUser, validPayload)).rejects.toThrow(ForbiddenException);
+    expect(prisma.section.findUnique).not.toHaveBeenCalled();
+    expect(prisma.contentType.findUnique).not.toHaveBeenCalled();
+    expect(prisma.content.update).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving content from an allowed section to an out-of-scope section", async () => {
+    const { prisma, service } = createContentsService();
+    mockScopedRole(prisma, ["section-1"]);
+    prisma.content.findUnique.mockResolvedValue({
+      id: "content-1",
+      slug: "noticias",
+      status: "draft",
+      visibility: "public",
+      publishedAt: null,
+      validFrom: null,
+      validUntil: null,
+      validateValidity: false,
+      sectionId: "section-1",
+      seoId: null
+    });
+    prisma.section.findUnique.mockResolvedValue({ id: "section-2", path: "/fora", isActive: true });
+    prisma.contentType.findUnique.mockResolvedValue({ id: "type-1" });
+
+    await expect(
+      service.update("content-1", scopedUser, {
+        ...validPayload,
+        sectionId: "section-2"
+      })
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.content.update).not.toHaveBeenCalled();
+    expect(prisma.seoMetadata.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("does not grant descendant sections from a parent section scope automatically", async () => {
+    const { prisma, service } = createContentsService();
+    mockScopedRole(prisma, ["parent-section"]);
+    prisma.section.findUnique.mockResolvedValue({
+      id: "child-section",
+      path: "/institucional/filho",
+      isActive: true
+    });
+    prisma.contentType.findUnique.mockResolvedValue({ id: "type-1" });
+
+    await expect(
+      service.create(scopedUser, {
+        ...validPayload,
+        sectionId: "child-section"
+      })
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.section.findMany).not.toHaveBeenCalled();
+    expect(prisma.content.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+  });
 
   it("blocks creating published content without contents.publish", async () => {
     const { prisma, service } = createContentsService();
@@ -744,6 +921,46 @@ describe("ContentsService friendly URL policy", () => {
     expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
   });
 
+  it("does not grant editorial create access from public section accessPolicy without RoleSectionAccess", async () => {
+    const { prisma, service } = createContentsService();
+    mockScopedRole(prisma, [], ["type-1"]);
+    prisma.section.findUnique.mockResolvedValue({
+      id: "section-public",
+      path: "/publica",
+      isActive: true,
+      accessPolicy: "public"
+    });
+    prisma.contentType.findUnique.mockResolvedValue({ id: "type-1" });
+
+    await expect(
+      service.create(scopedUser, {
+        ...validPayload,
+        sectionId: "section-public"
+      })
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.content.create).not.toHaveBeenCalled();
+    expect(prisma.seoMetadata.create).not.toHaveBeenCalled();
+    expect(prisma.contentRevision.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("still requires contents.publish when an in-scope user creates published content", async () => {
+    const { prisma, service } = createContentsService();
+    mockScopedRole(prisma, ["section-1"], ["type-1"]);
+    mockValidRelations(prisma);
+
+    await expect(
+      service.create(scopedUser, {
+        ...validPayload,
+        status: "published"
+      })
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.content.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
   it("rejects creating content when the normalized slug already exists as another friendly URL", async () => {
     const { prisma, service } = createContentsService();
     mockValidRelations(prisma);
@@ -858,6 +1075,177 @@ describe("ContentsService friendly URL policy", () => {
         primarySectionId: "section-1",
         isActive: true
       }
+    });
+  });
+});
+
+describe("ContentsService editorial scope listings", () => {
+  const scopedUser = {
+    sub: "scoped-1",
+    permissions: ["contents.read"],
+    roleId: "role-editor"
+  } as never;
+  const emptyScopeUser = {
+    sub: "empty-1",
+    permissions: ["contents.read"],
+    roleId: "role-empty"
+  } as never;
+  const adminUser = {
+    sub: "admin-1",
+    permissions: ["contents.read"],
+    roleId: "role-admin"
+  } as never;
+
+  function mockRoleScope(
+    prisma: ReturnType<typeof createContentsService>["prisma"],
+    input: {
+      name?: string;
+      functionName?: string;
+      sectionIds?: string[];
+      contentTypeIds?: string[];
+    }
+  ) {
+    prisma.role.findUnique.mockResolvedValue({
+      id: "role-1",
+      name: input.name ?? "Editor",
+      functionName: input.functionName ?? "Editor",
+      sectionAccesses: (input.sectionIds ?? []).map((sectionId) => ({ sectionId })),
+      contentTypeAccesses: (input.contentTypeIds ?? []).map((contentTypeId) => ({ contentTypeId }))
+    });
+  }
+
+  it("filters admin content list by active role sections and content types", async () => {
+    const { prisma, service } = createContentsService();
+    mockRoleScope(prisma, {
+      sectionIds: ["section-1", "section-2"],
+      contentTypeIds: ["type-1"]
+    });
+    prisma.content.findMany.mockResolvedValue([]);
+
+    await service.listAdmin(scopedUser);
+
+    expect(prisma.content.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          sectionId: { in: ["section-1", "section-2"] },
+          contentTypeId: { in: ["type-1"] }
+        }
+      })
+    );
+  });
+
+  it("keeps empty normal role scope as an empty admin content result filter", async () => {
+    const { prisma, service } = createContentsService();
+    mockRoleScope(prisma, {
+      sectionIds: [],
+      contentTypeIds: []
+    });
+    prisma.content.findMany.mockResolvedValue([]);
+
+    await service.listAdmin(emptyScopeUser);
+
+    expect(prisma.content.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          sectionId: { in: [] },
+          contentTypeId: { in: [] }
+        }
+      })
+    );
+  });
+
+  it("keeps explicit administrator roles unrestricted in admin content list", async () => {
+    const { prisma, service } = createContentsService();
+    mockRoleScope(prisma, {
+      name: "Administrador",
+      functionName: "Administrador",
+      sectionIds: [],
+      contentTypeIds: []
+    });
+    prisma.content.findMany.mockResolvedValue([]);
+
+    await service.listAdmin(adminUser);
+
+    expect(prisma.content.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {}
+      })
+    );
+  });
+
+  it("filters editor metadata sections and content types by active role scope", async () => {
+    const { prisma, service } = createContentsService();
+    mockRoleScope(prisma, {
+      sectionIds: ["section-1"],
+      contentTypeIds: ["type-1"]
+    });
+    prisma.section.findMany.mockResolvedValue([]);
+    prisma.template.findMany.mockResolvedValue([]);
+    prisma.contentType.findMany.mockResolvedValue([]);
+
+    await service.getEditorMeta(scopedUser);
+
+    expect(prisma.section.findMany).toHaveBeenCalledWith({
+      where: {
+        isActive: true,
+        id: { in: ["section-1"] }
+      },
+      orderBy: [{ path: "asc" }]
+    });
+    expect(prisma.contentType.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["type-1"] } },
+      orderBy: [{ name: "asc" }]
+    });
+  });
+
+  it("keeps empty normal role scope out of editor metadata sections and content types", async () => {
+    const { prisma, service } = createContentsService();
+    mockRoleScope(prisma, {
+      sectionIds: [],
+      contentTypeIds: []
+    });
+    prisma.section.findMany.mockResolvedValue([]);
+    prisma.template.findMany.mockResolvedValue([]);
+    prisma.contentType.findMany.mockResolvedValue([]);
+
+    await service.getEditorMeta(emptyScopeUser);
+
+    expect(prisma.section.findMany).toHaveBeenCalledWith({
+      where: {
+        isActive: true,
+        id: { in: [] }
+      },
+      orderBy: [{ path: "asc" }]
+    });
+    expect(prisma.contentType.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [] } },
+      orderBy: [{ name: "asc" }]
+    });
+  });
+
+  it("keeps explicit administrator roles unrestricted in editor metadata", async () => {
+    const { prisma, service } = createContentsService();
+    mockRoleScope(prisma, {
+      name: "Administrador",
+      functionName: "Administrador",
+      sectionIds: [],
+      contentTypeIds: []
+    });
+    prisma.section.findMany.mockResolvedValue([]);
+    prisma.template.findMany.mockResolvedValue([]);
+    prisma.contentType.findMany.mockResolvedValue([]);
+
+    await service.getEditorMeta(adminUser);
+
+    expect(prisma.section.findMany).toHaveBeenCalledWith({
+      where: {
+        isActive: true
+      },
+      orderBy: [{ path: "asc" }]
+    });
+    expect(prisma.contentType.findMany).toHaveBeenCalledWith({
+      where: undefined,
+      orderBy: [{ name: "asc" }]
     });
   });
 });
