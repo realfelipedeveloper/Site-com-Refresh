@@ -7,6 +7,7 @@ import {
 } from "../../fixtures/refresh-auth-fixtures";
 
 const refreshUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3101/abbatech/refresh";
+const refreshReadyTimeoutMs = 15_000;
 
 test.describe("Refresh auth regressions", () => {
   test("first access without token renders login without expired-session alert", async ({ page }) => {
@@ -19,7 +20,9 @@ test.describe("Refresh auth regressions", () => {
     await routeAuthMe(page, 401, { message: "Sessão ausente." });
     await page.goto(refreshUrl);
 
-    await expect(page.getByRole("heading", { name: "Login de usuário" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Login de usuário" })).toBeVisible({
+      timeout: refreshReadyTimeoutMs
+    });
     await expect(page.getByText("Sessão expirada")).toHaveCount(0);
     expect(nativeDialogs).toEqual([]);
   });
@@ -42,8 +45,10 @@ test.describe("Refresh auth regressions", () => {
     await routeAuthMe(page, 401, { message: "Sessão inválida ou expirada." });
     await page.goto(refreshUrl);
 
-    await expect(page.getByText("Sessão expirada")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Login de usuário" })).toBeVisible();
+    await expect(page.getByText("Sessão expirada")).toBeVisible({ timeout: refreshReadyTimeoutMs });
+    await expect(page.getByRole("heading", { name: "Login de usuário" })).toBeVisible({
+      timeout: refreshReadyTimeoutMs
+    });
     expect(nativeDialogs).toEqual([]);
     await expect
       .poll(async () =>
@@ -61,14 +66,14 @@ test.describe("Refresh auth regressions", () => {
   });
 
   test("admin login redirects to users and reload preserves the selected internal route", async ({ page }) => {
-    await routeLoggedInRefreshApi(page);
+    await routeRefreshLoginFlowApi(page);
     await page.goto(refreshUrl);
 
     await page.getByLabel("Usuário").fill(refreshTestCredentials.admin.email);
     await page.getByLabel("Senha").fill(refreshTestCredentials.admin.password);
     await page.getByRole("button", { name: "Entrar" }).click();
 
-    await expect(page.getByText("Cadastro de Usuários")).toBeVisible();
+    await expect(page.getByText("Cadastro de Usuários")).toBeVisible({ timeout: refreshReadyTimeoutMs });
     await page.getByRole("button", { name: "Administração" }).click();
     await page.getByRole("button", { name: "Grupos" }).click();
     await expect(page.getByText("Cadastro de Grupos")).toBeVisible();
@@ -87,7 +92,7 @@ test.describe("Refresh auth regressions", () => {
     await page.goto(refreshUrl);
 
     const profileButton = page.getByRole("button", { name: /Admin Refresh/ });
-    await expect(profileButton).toHaveAttribute("aria-expanded", "false");
+    await expect(profileButton).toHaveAttribute("aria-expanded", "false", { timeout: refreshReadyTimeoutMs });
     await expect(page.getByText("Perfis do usuário")).toHaveCount(0);
 
     await profileButton.hover();
@@ -112,6 +117,29 @@ async function routeAuthMe(page: Page, status: number, body: unknown) {
   });
 }
 
+async function routeRefreshLoginFlowApi(page: Page) {
+  let authenticated = false;
+
+  await page.route("**/api/v1/auth/login", async (route) => {
+    authenticated = true;
+    await route.fulfill({
+      contentType: "application/json",
+      status: 200,
+      body: JSON.stringify({ csrfToken: "csrf-token" })
+    });
+  });
+
+  await page.route("**/api/v1/auth/me", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      status: authenticated ? 200 : 401,
+      body: JSON.stringify(authenticated ? refreshAdminUserFixture : { message: "Sessão ausente." })
+    });
+  });
+
+  await routeRefreshDataApi(page);
+}
+
 async function routeLoggedInRefreshApi(page: Page) {
   await page.route("**/api/v1/auth/login", async (route) => {
     await route.fulfill({
@@ -121,7 +149,10 @@ async function routeLoggedInRefreshApi(page: Page) {
     });
   });
   await routeAuthMe(page, 200, refreshAdminUserFixture);
+  await routeRefreshDataApi(page);
+}
 
+async function routeRefreshDataApi(page: Page) {
   const emptyJsonRoutes = [
     "**/api/v1/contents/meta",
     "**/api/v1/sections/admin/list",

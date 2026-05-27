@@ -109,7 +109,12 @@ export class SectionsService {
       throw new NotFoundException("Secao nao encontrada.");
     }
 
-    const parent = await this.getParent(payload.parentId ?? current.parentId);
+    const targetParentId = payload.parentId === undefined ? current.parentId : payload.parentId;
+    this.ensureNotSelfParent(current.id, targetParentId);
+
+    const parent = await this.getParent(targetParentId);
+    this.ensureNotDescendantParent(current, parent);
+
     const slug = toFriendlySlug(payload.slug ?? current.slug ?? payload.name);
     const path = this.buildPath(parent?.path, slug);
 
@@ -183,6 +188,28 @@ export class SectionsService {
   private buildPath(parentPath: string | undefined, slug: string) {
     const base = parentPath?.replace(/\/+$/, "") ?? "";
     return normalizeFriendlyPath(`${base}/${slug}`);
+  }
+
+  private ensureNotSelfParent(sectionId: string, parentId?: string | null) {
+    if (parentId === sectionId) {
+      throw new BadRequestException("Secao nao pode ser pai dela mesma.");
+    }
+  }
+
+  private ensureNotDescendantParent(
+    current: { id: string; path?: string | null },
+    parent: { id: string; path?: string | null } | null
+  ) {
+    if (!parent) {
+      return;
+    }
+
+    const currentPath = current.path?.replace(/\/+$/, "");
+    const parentPath = parent.path?.replace(/\/+$/, "");
+
+    if (currentPath && parentPath?.startsWith(`${currentPath}/`)) {
+      throw new BadRequestException("Secao nao pode ser movida para uma descendente.");
+    }
   }
 
   private buildPublicMenuTree(sections: PublicMenuSection[]) {
