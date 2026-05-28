@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../infra/prisma.service";
 import { normalizeFriendlyPath, toFriendlySlug } from "../friendly-urls/friendly-url.utils";
 
@@ -28,6 +29,18 @@ type PublicMenuSection = {
   accessPolicy?: string | null;
   children?: PublicMenuSection[];
   [key: string]: unknown;
+};
+
+type SectionPersistence = Pick<PrismaService, "auditLog" | "friendlyUrl" | "section"> | Prisma.TransactionClient;
+
+type SectionPathRecord = {
+  id: string;
+  slug: string;
+  path: string;
+};
+
+type PlannedSectionPath = SectionPathRecord & {
+  nextPath: string;
 };
 
 @Injectable()
@@ -118,27 +131,52 @@ export class SectionsService {
     const slug = toFriendlySlug(payload.slug ?? current.slug ?? payload.name);
     const path = this.buildPath(parent?.path, slug);
 
-    await this.ensureUniqueSlugAndPath(slug, path, id);
-    await this.ensureFriendlyUrlAvailable(path, id);
+    const section = await this.prisma.$transaction(async (tx) => {
+      const descendants = await this.findDescendantSections(current, tx);
+      const plannedPaths = this.planSectionPaths(current, path, descendants);
 
-    const section = await this.prisma.section.update({
-      where: { id },
-      data: {
-        name: payload.name,
-        slug,
-        path,
-        description: payload.description,
-        order: payload.order ?? current.order,
-        visibleInMenu: payload.visibleInMenu ?? current.visibleInMenu,
-        isActive: payload.isActive ?? current.isActive,
-        accessPolicy: payload.accessPolicy ?? current.accessPolicy ?? "public",
-        parentId: parent?.id ?? null
+      await this.ensureUniqueSlugAndPath(slug, path, id, tx);
+      await this.ensureSectionPathsAvailable(plannedPaths, tx);
+      await this.ensureFriendlyUrlsAvailable(plannedPaths, tx);
+
+      const nextSection = await tx.section.update({
+        where: { id },
+        data: {
+          name: payload.name,
+          slug,
+          path,
+          description: payload.description,
+          order: payload.order ?? current.order,
+          visibleInMenu: payload.visibleInMenu ?? current.visibleInMenu,
+          isActive: payload.isActive ?? current.isActive,
+          accessPolicy: payload.accessPolicy ?? current.accessPolicy ?? "public",
+          parentId: parent?.id ?? null
+        }
+      });
+
+      for (const plannedPath of plannedPaths.slice(1)) {
+        await tx.section.update({
+          where: { id: plannedPath.id },
+          data: {
+            path: plannedPath.nextPath
+          }
+        });
       }
-    });
 
-    await this.rebuildChildPaths(section.id, section.path);
-    await this.upsertFriendlyUrlForSection(section);
-    await this.auditSectionAccessPolicyChange(current, section);
+      for (const plannedPath of plannedPaths) {
+        await this.upsertFriendlyUrlForSection(
+          {
+            id: plannedPath.id,
+            path: plannedPath.nextPath
+          },
+          tx
+        );
+      }
+
+      await this.auditSectionAccessPolicyChange(current, nextSection, tx);
+
+      return nextSection;
+    });
 
     return section;
   }
@@ -253,8 +291,13 @@ export class SectionsService {
     };
   }
 
-  private async ensureUniqueSlugAndPath(slug: string, path: string, currentId?: string) {
-    const existing = await this.prisma.section.findFirst({
+  private async ensureUniqueSlugAndPath(
+    slug: string,
+    path: string,
+    currentId?: string,
+    client: SectionPersistence = this.prisma
+  ) {
+    const existing = await client.section.findFirst({
       where: {
         OR: [{ slug }, { path }],
         ...(currentId ? { NOT: { id: currentId } } : {})
@@ -281,9 +324,12 @@ export class SectionsService {
     throw new ConflictException("Ja existe uma URL amigavel com o mesmo caminho.");
   }
 
-  private async upsertFriendlyUrlForSection(section: { id: string; path: string }) {
+  private async upsertFriendlyUrlForSection(
+    section: { id: string; path: string },
+    client: SectionPersistence = this.prisma
+  ) {
     const path = normalizeFriendlyPath(section.path);
-    const existing = await this.prisma.friendlyUrl.findFirst({
+    const existing = await client.friendlyUrl.findFirst({
       where: {
         targetType: "section",
         sectionId: section.id
@@ -291,7 +337,7 @@ export class SectionsService {
     });
 
     if (existing) {
-      await this.prisma.friendlyUrl.update({
+      await client.friendlyUrl.update({
         where: { id: existing.id },
         data: {
           path,
@@ -301,7 +347,7 @@ export class SectionsService {
       return;
     }
 
-    await this.prisma.friendlyUrl.create({
+    await client.friendlyUrl.create({
       data: {
         path,
         targetType: "section",
@@ -313,7 +359,8 @@ export class SectionsService {
 
   private async auditSectionAccessPolicyChange(
     previous: { id: string; accessPolicy?: string | null },
-    current: { id: string; accessPolicy?: string | null }
+    current: { id: string; accessPolicy?: string | null },
+    client: SectionPersistence = this.prisma
   ) {
     const previousPolicy = previous.accessPolicy ?? "public";
     const currentPolicy = current.accessPolicy ?? "public";
@@ -322,7 +369,7 @@ export class SectionsService {
       return;
     }
 
-    await this.prisma.auditLog.create({
+    await client.auditLog.create({
       data: {
         action: "section.access_policy_changed",
         entityType: "Section",
@@ -337,27 +384,92 @@ export class SectionsService {
     });
   }
 
-  private async rebuildChildPaths(parentId: string, parentPath: string) {
-    const children = await this.prisma.section.findMany({
-      where: { parentId },
-      orderBy: { order: "asc" }
+  private async findDescendantSections(
+    current: { path?: string | null },
+    client: SectionPersistence = this.prisma
+  ): Promise<SectionPathRecord[]> {
+    const currentPath = current.path?.replace(/\/+$/, "");
+
+    if (!currentPath) {
+      return [];
+    }
+
+    return client.section.findMany({
+      where: {
+        path: {
+          startsWith: `${currentPath}/`
+        }
+      },
+      select: {
+        id: true,
+        slug: true,
+        path: true
+      },
+      orderBy: { path: "asc" }
+    });
+  }
+
+  private planSectionPaths(
+    current: { id: string; slug: string; path: string },
+    nextPath: string,
+    descendants: SectionPathRecord[]
+  ): PlannedSectionPath[] {
+    const currentPath = current.path.replace(/\/+$/, "");
+    const normalizedNextPath = normalizeFriendlyPath(nextPath);
+
+    return [
+      {
+        id: current.id,
+        slug: current.slug,
+        path: current.path,
+        nextPath: normalizedNextPath
+      },
+      ...descendants.map((descendant) => ({
+        ...descendant,
+        nextPath: normalizeFriendlyPath(`${normalizedNextPath}${descendant.path.slice(currentPath.length)}`)
+      }))
+    ];
+  }
+
+  private async ensureSectionPathsAvailable(plannedPaths: PlannedSectionPath[], client: SectionPersistence) {
+    const affectedIds = plannedPaths.map((section) => section.id);
+    const nextPaths = plannedPaths.map((section) => section.nextPath);
+    const collisions = await client.section.findMany({
+      where: {
+        path: { in: nextPaths },
+        id: { notIn: affectedIds }
+      },
+      select: {
+        id: true,
+        path: true
+      }
     });
 
-    for (const child of children) {
-      const nextPath = this.buildPath(parentPath, child.slug);
-      await this.ensureFriendlyUrlAvailable(nextPath, child.id);
-      await this.prisma.section.update({
-        where: { id: child.id },
-        data: {
-          path: nextPath
-        }
-      });
+    if (collisions.length) {
+      throw new ConflictException("Ja existe uma secao com path gerado para a hierarquia.");
+    }
+  }
 
-      await this.upsertFriendlyUrlForSection({
-        ...child,
-        path: nextPath
-      });
-      await this.rebuildChildPaths(child.id, nextPath);
+  private async ensureFriendlyUrlsAvailable(plannedPaths: PlannedSectionPath[], client: SectionPersistence) {
+    const affectedIds = plannedPaths.map((section) => section.id);
+    const nextPaths = plannedPaths.map((section) => section.nextPath);
+    const collisions = await client.friendlyUrl.findMany({
+      where: {
+        path: { in: nextPaths },
+        OR: [
+          { targetType: { not: "section" } },
+          { sectionId: null },
+          { sectionId: { notIn: affectedIds } }
+        ]
+      },
+      select: {
+        id: true,
+        path: true
+      }
+    });
+
+    if (collisions.length) {
+      throw new ConflictException("Ja existe uma URL amigavel com path gerado para a hierarquia.");
     }
   }
 }

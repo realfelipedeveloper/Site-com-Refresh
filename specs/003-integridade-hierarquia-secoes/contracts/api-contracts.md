@@ -1,6 +1,6 @@
 # API Contracts: Integridade de hierarquia e caminhos de secoes
 
-**Status**: Planned; no runtime contract change implemented yet.
+**Status**: US1/US2 implemented; US3 remains pending.
 
 ## Contract Principle
 
@@ -12,7 +12,7 @@ Section hierarchy integrity is enforced by the API. The admin UI may submit pare
 
 Requires existing authentication and permission behavior.
 
-Planned behavior:
+Implemented behavior:
 
 - Rejects `parentId` equal to the section id.
 - Rejects `parentId` pointing to a descendant.

@@ -8,9 +8,11 @@ function createSectionsService() {
     auditLog: {
       create: vi.fn()
     },
+    $transaction: vi.fn(),
     friendlyUrl: {
       create: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
       update: vi.fn()
     },
     section: {
@@ -22,6 +24,9 @@ function createSectionsService() {
       update: vi.fn()
     }
   };
+  prisma.$transaction.mockImplementation(async (callback) => callback(prisma));
+  prisma.section.findMany.mockResolvedValue([]);
+  prisma.friendlyUrl.findMany.mockResolvedValue([]);
 
   return {
     prisma,
@@ -62,12 +67,14 @@ describe("SectionsService friendly URL policy", () => {
       isActive: true
     });
     prisma.section.findFirst.mockResolvedValue(null);
-    prisma.friendlyUrl.findFirst.mockResolvedValue({
-      id: "url-1",
-      path: "/noticias",
-      targetType: "content",
-      contentId: "content-1"
-    });
+    prisma.friendlyUrl.findMany.mockResolvedValue([
+      {
+        id: "url-1",
+        path: "/noticias",
+        targetType: "content",
+        contentId: "content-1"
+      }
+    ]);
 
     await expect(service.update("section-1", { name: "Notícias", slug: "noticias" })).rejects.toThrow(
       ConflictException
@@ -326,6 +333,338 @@ describe("SectionsService hierarchy integrity", () => {
   });
 });
 
+describe("SectionsService descendant path propagation", () => {
+  it("updates descendant paths and friendly URLs when renaming an ancestor", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findUnique.mockResolvedValue({
+      id: "root",
+      name: "Institucional",
+      slug: "institucional",
+      path: "/institucional",
+      parentId: null,
+      order: 1,
+      visibleInMenu: true,
+      isActive: true,
+      accessPolicy: "public"
+    });
+    prisma.section.findFirst.mockResolvedValue(null);
+    prisma.section.findMany
+      .mockResolvedValueOnce([
+        {
+          id: "child",
+          name: "Sobre",
+          slug: "sobre",
+          path: "/institucional/sobre",
+          parentId: "root",
+          order: 1,
+          visibleInMenu: true,
+          isActive: true,
+          accessPolicy: "public"
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    prisma.section.update
+      .mockResolvedValueOnce({
+        id: "root",
+        name: "Institucional Novo",
+        slug: "institucional-novo",
+        path: "/institucional-novo",
+        accessPolicy: "public"
+      })
+      .mockResolvedValueOnce({
+        id: "child",
+        name: "Sobre",
+        slug: "sobre",
+        path: "/institucional-novo/sobre",
+        accessPolicy: "public"
+      });
+    prisma.friendlyUrl.findFirst
+      .mockResolvedValueOnce({
+        id: "root-url",
+        path: "/institucional",
+        targetType: "section",
+        sectionId: "root"
+      })
+      .mockResolvedValueOnce({
+        id: "child-url",
+        path: "/institucional/sobre",
+        targetType: "section",
+        sectionId: "child"
+      });
+    prisma.friendlyUrl.update.mockResolvedValue({});
+
+    await service.update("root", {
+      name: "Institucional Novo",
+      slug: "institucional-novo"
+    });
+
+    expect(prisma.section.update).toHaveBeenNthCalledWith(1, {
+      where: { id: "root" },
+      data: expect.objectContaining({
+        path: "/institucional-novo",
+        slug: "institucional-novo"
+      })
+    });
+    expect(prisma.section.update).toHaveBeenNthCalledWith(2, {
+      where: { id: "child" },
+      data: {
+        path: "/institucional-novo/sobre"
+      }
+    });
+    expect(prisma.friendlyUrl.update).toHaveBeenCalledWith({
+      where: { id: "child-url" },
+      data: {
+        path: "/institucional-novo/sobre",
+        isActive: true
+      }
+    });
+  });
+
+  it("updates descendant paths when moving an ancestor under a new parent", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findUnique
+      .mockResolvedValueOnce({
+        id: "root",
+        name: "Institucional",
+        slug: "institucional",
+        path: "/institucional",
+        parentId: null,
+        order: 1,
+        visibleInMenu: true,
+        isActive: true,
+        accessPolicy: "public"
+      })
+      .mockResolvedValueOnce({
+        id: "portal",
+        name: "Portal",
+        slug: "portal",
+        path: "/portal",
+        parentId: null,
+        order: 1,
+        visibleInMenu: true,
+        isActive: true,
+        accessPolicy: "public"
+      });
+    prisma.section.findFirst.mockResolvedValue(null);
+    prisma.section.findMany
+      .mockResolvedValueOnce([
+        {
+          id: "child",
+          name: "Sobre",
+          slug: "sobre",
+          path: "/institucional/sobre",
+          parentId: "root",
+          order: 1,
+          visibleInMenu: true,
+          isActive: true,
+          accessPolicy: "public"
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    prisma.section.update
+      .mockResolvedValueOnce({
+        id: "root",
+        name: "Institucional",
+        slug: "institucional",
+        path: "/portal/institucional",
+        accessPolicy: "public"
+      })
+      .mockResolvedValueOnce({
+        id: "child",
+        name: "Sobre",
+        slug: "sobre",
+        path: "/portal/institucional/sobre",
+        accessPolicy: "public"
+      });
+    prisma.friendlyUrl.findFirst
+      .mockResolvedValueOnce({
+        id: "root-url",
+        path: "/institucional",
+        targetType: "section",
+        sectionId: "root"
+      })
+      .mockResolvedValueOnce({
+        id: "child-url",
+        path: "/institucional/sobre",
+        targetType: "section",
+        sectionId: "child"
+      });
+    prisma.friendlyUrl.update.mockResolvedValue({});
+
+    await service.update("root", {
+      name: "Institucional",
+      parentId: "portal"
+    });
+
+    expect(prisma.section.update).toHaveBeenNthCalledWith(1, {
+      where: { id: "root" },
+      data: expect.objectContaining({
+        parentId: "portal",
+        path: "/portal/institucional"
+      })
+    });
+    expect(prisma.section.update).toHaveBeenNthCalledWith(2, {
+      where: { id: "child" },
+      data: {
+        path: "/portal/institucional/sobre"
+      }
+    });
+  });
+
+  it("rejects descendant path collisions before persisting partial changes", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findUnique.mockResolvedValue({
+      id: "root",
+      name: "Institucional",
+      slug: "institucional",
+      path: "/institucional",
+      parentId: null,
+      order: 1,
+      visibleInMenu: true,
+      isActive: true,
+      accessPolicy: "public"
+    });
+    prisma.section.findFirst.mockResolvedValue(null);
+    prisma.section.findMany
+      .mockResolvedValueOnce([
+        {
+          id: "child",
+          name: "Sobre",
+          slug: "sobre",
+          path: "/institucional/sobre",
+          parentId: "root",
+          order: 1,
+          visibleInMenu: true,
+          isActive: true,
+          accessPolicy: "public"
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "other-section",
+          path: "/institucional-novo/sobre"
+        }
+      ]);
+    prisma.friendlyUrl.findFirst.mockResolvedValue({
+      id: "root-url",
+      path: "/institucional",
+      targetType: "section",
+      sectionId: "root"
+    });
+
+    await expect(
+      service.update("root", {
+        name: "Institucional Novo",
+        slug: "institucional-novo"
+      })
+    ).rejects.toThrow(ConflictException);
+    expect(prisma.section.update).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects descendant FriendlyUrl collisions before persisting partial changes", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findUnique.mockResolvedValue({
+      id: "root",
+      name: "Institucional",
+      slug: "institucional",
+      path: "/institucional",
+      parentId: null,
+      order: 1,
+      visibleInMenu: true,
+      isActive: true,
+      accessPolicy: "public"
+    });
+    prisma.section.findFirst.mockResolvedValue(null);
+    prisma.section.findMany
+      .mockResolvedValueOnce([
+        {
+          id: "child",
+          name: "Sobre",
+          slug: "sobre",
+          path: "/institucional/sobre",
+          parentId: "root",
+          order: 1,
+          visibleInMenu: true,
+          isActive: true,
+          accessPolicy: "public"
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    prisma.friendlyUrl.findFirst.mockResolvedValue({
+      id: "root-url",
+      path: "/institucional",
+      targetType: "section",
+      sectionId: "root"
+    });
+    prisma.friendlyUrl.findMany.mockResolvedValue([
+      {
+        id: "content-url",
+        path: "/institucional-novo/sobre",
+        targetType: "content",
+        contentId: "content-1"
+      }
+    ]);
+
+    await expect(
+      service.update("root", {
+        name: "Institucional Novo",
+        slug: "institucional-novo"
+      })
+    ).rejects.toThrow(ConflictException);
+    expect(prisma.section.update).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.create).not.toHaveBeenCalled();
+    expect(prisma.friendlyUrl.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("SectionsService admin listing", () => {
+  it("returns coherent hierarchical paths ordered by path for admin listings", async () => {
+    const { prisma, service } = createSectionsService();
+    const sections = [
+      {
+        id: "root",
+        name: "Institucional",
+        slug: "institucional",
+        path: "/portal/institucional",
+        parent: { id: "portal", path: "/portal" },
+        _count: { children: 1, contents: 0 }
+      },
+      {
+        id: "child",
+        name: "Sobre",
+        slug: "sobre",
+        path: "/portal/institucional/sobre",
+        parent: { id: "root", path: "/portal/institucional" },
+        _count: { children: 0, contents: 0 }
+      }
+    ];
+    prisma.section.findMany.mockResolvedValue(sections);
+
+    const result = await service.listAdmin();
+
+    expect(prisma.section.findMany).toHaveBeenCalledWith({
+      include: {
+        parent: true,
+        _count: {
+          select: {
+            children: true,
+            contents: true
+          }
+        }
+      },
+      orderBy: [{ path: "asc" }]
+    });
+    expect(result.map((section) => section.path)).toEqual([
+      "/portal/institucional",
+      "/portal/institucional/sobre"
+    ]);
+  });
+});
+
 type MenuSection = {
   id: string;
   name: string;
@@ -355,6 +694,22 @@ function menuSection(overrides: Partial<MenuSection>): MenuSection {
 }
 
 describe("SectionsService public menu policy", () => {
+  it("keeps public menu filtering in the backend after hierarchy propagation changes", async () => {
+    const { prisma, service } = createSectionsService();
+    prisma.section.findMany.mockResolvedValue([]);
+
+    await service.listTree();
+
+    expect(prisma.section.findMany).toHaveBeenCalledWith({
+      where: {
+        isActive: true,
+        visibleInMenu: true,
+        accessPolicy: { in: ["public", "restricted_visible"] }
+      },
+      orderBy: [{ order: "asc" }, { name: "asc" }]
+    });
+  });
+
   it("does not return inactive or hidden root sections in the public menu", async () => {
     const { prisma, service } = createSectionsService();
     prisma.section.findMany.mockResolvedValue([

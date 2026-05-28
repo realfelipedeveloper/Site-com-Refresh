@@ -1,12 +1,14 @@
 # Implementation Plan: Integridade de hierarquia e caminhos de secoes
 
-**Branch**: `feature/section-hierarchy-path-integrity` | **Date**: 2026-05-25 | **Spec**: [spec.md](./spec.md)
+**Branch atual**: `feature/section-path-friendlyurl-propagation` | **Date**: 2026-05-25 | **Spec**: [spec.md](./spec.md)
+
+**Branch inicial da spec**: `feature/section-hierarchy-path-integrity`, usada para concluir US1/T001-T008.
 
 ## Planning Status
 
-**GO COM RESSALVAS para tasks.**
+**Implementation in progress on the authorized feature branch.**
 
-No runtime implementation is authorized by this plan. The next step is task generation for a small implementation slice. Git write actions, migrations, seeds, Docker/Compose changes, deploys, commits, pushes and merges remain unauthorized unless explicitly requested.
+T001-T019 are implemented with targeted validations. The branch is not ready for commit/PR until the mandatory full validation gate in `tasks.md` and `quickstart.md` is executed and documented. Git write actions, migrations, seeds, Docker/Compose changes, deploys, commits, pushes and merges remain unauthorized unless explicitly requested.
 
 ## Summary
 
@@ -78,10 +80,23 @@ Required targeted tests:
 - FriendlyUrl records update for moved/renamed section and descendants.
 - Collision in any affected path prevents partial persistence.
 
-Validation:
+Targeted validation while developing:
 
 - `npm run test:api -- apps/api/src/modules/sections/sections.service.test.ts`
 - `npm run typecheck -w @abbatech/api`
+
+Mandatory full validation before commit/PR:
+
+- `npm run test:security`
+- `npm run test:api`
+- `npm run typecheck`
+- `npm run lint`
+- `npm run test:portal`
+- `npm run test:refresh`
+- `npm run test:migrations`
+- `npm run test:ci`
+- `npm run test:smoke` when a test stack is running
+- `npm run test:all -- --skip-playwright-install`, or an explicitly documented equivalent manual full-stack sequence if the Windows/test-stack harness blocks the command
 
 ## Risk and Rollback
 

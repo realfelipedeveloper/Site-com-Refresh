@@ -1,6 +1,6 @@
 # Data Model: Integridade de hierarquia e caminhos de secoes
 
-**Status**: Planned; no schema change expected.
+**Status**: US1/US2/US3 implemented without schema changes.
 
 ## Existing Entities
 
@@ -27,6 +27,8 @@ Rules:
 - A section cannot be its own parent.
 - A section cannot be moved below any of its descendants.
 - Descendant paths must be recalculated when an ancestor path changes.
+- US2 implementation recalculates descendant paths transactionally and validates generated paths before persistence.
+- US3 regression confirms admin listings expose coherent hierarchical paths ordered by `path`.
 
 ### FriendlyUrl
 
@@ -42,10 +44,11 @@ Rules:
 - Section `FriendlyUrl.path` must match the current `Section.path`.
 - Path uniqueness remains global across sections and content.
 - A collision with another target blocks the operation.
+- US2 implementation updates `FriendlyUrl.path` for the moved/renamed section and every affected descendant in the same transaction.
 
 ## Migration Impact
 
-No migration is planned. If implementation discovers a missing capability, stop and re-plan before schema work.
+No migration was created for US1/US2. If a future implementation discovers a missing capability, stop and re-plan before schema work.
 
 ## Legacy Mapping
 
@@ -62,3 +65,5 @@ No migration is planned. If implementation discovers a missing capability, stop 
 - Validate all new descendant paths before mutating when feasible.
 - Do not leave section paths and FriendlyUrl paths divergent.
 - Do not alter `Section.accessPolicy` semantics.
+- Collision with any generated descendant `Section.path` or `FriendlyUrl.path` must fail before partial persistence.
+- Public menu/accessPolicy filtering remains unchanged by this feature.

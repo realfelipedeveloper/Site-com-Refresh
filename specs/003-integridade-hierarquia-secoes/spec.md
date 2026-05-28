@@ -1,6 +1,7 @@
 # Feature Specification: Integridade de hierarquia e caminhos de secoes
 
-**Feature Branch**: `feature/section-hierarchy-path-integrity`  
+**Feature Branch atual**: `feature/section-path-friendlyurl-propagation`
+**Branch inicial da spec**: `feature/section-hierarchy-path-integrity`, usada para concluir US1/T001-T008
 **Created**: 2026-05-25  
 **Status**: Draft  
 **Input**: Proxima subfatia de regras de negocio de secoes do CMS legado ICHC, usando `legado/` apenas como fonte de comportamento.
@@ -80,7 +81,8 @@ Evidencias usadas apenas para comportamento:
 - **SC-002**: Renomear ou mover uma secao com descendentes atualiza todos os paths descendentes e suas URLs amigaveis em um unico fluxo seguro.
 - **SC-003**: Colisoes de path/URL impedem persistencia parcial.
 - **SC-004**: Nenhuma mudanca de schema, migration ou seed e necessaria para completar a fatia.
-- **SC-005**: Testes especificos de `sections.service` e typecheck da API passam antes de fechar a feature.
+- **SC-005**: Testes especificos de `sections.service` e typecheck da API passam durante desenvolvimento da subfatia.
+- **SC-006**: Antes de commit/PR, a branch executa e registra o gate completo: `test:security`, `test:api`, `typecheck`, `lint`, `test:portal`, `test:refresh`, `test:migrations`, `test:ci`, `test:smoke` quando houver stack de teste, e `test:all -- --skip-playwright-install` ou equivalente manual documentado quando o harness estiver bloqueado.
 
 ## Assumptions
 
